@@ -298,14 +298,13 @@ func runDownload(thread_num int, keys *sync.Map) {
 	svc := s3.New(session.New(), cfg)
 
 	keys.Range(func(k, value interface{}) bool {
-		// for {
+
 		// 	objnum := atomic.AddInt32(&delete_count, 1)
 		// 	if objnum > upload_count {
 		// 		delete_count = 0
 		// 	}
 		// 	key := fmt.Sprintf("Object-%d", objnum)
 
-		// for key, _ :=  keys.Range() {
 		if time.Now().After(endtime) {
 			// fmt.Println("time ended for download")
 			return false
@@ -318,9 +317,6 @@ func runDownload(thread_num int, keys *sync.Map) {
 
 		fmt.Printf("download thread %v, %v\r", thread_num, key)
 
-		// atomic.AddInt32(&download_count, 1)
-		// objnum := rand.Int31n(download_count) + 1
-		// key := fmt.Sprintf("Object-%d", objnum)
 		r := &s3.GetObjectInput{
 			Bucket: &bucket,
 			Key:    &key,
