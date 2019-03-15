@@ -1,4 +1,42 @@
 # Introduction
+
+## This is a fork version of [wasabi-tech/se-benchmark](https://github.com/wasabi-tech/s3-benchmark), which support minio and ceph.
+
+Example output:
+
+```
+[wen@t s3-benchmark]$ . ceph.env 
+[wen@t s3-benchmark]$ s3-benchmark 
+Wasabi benchmark program v2.0
+Parameters: url=http://s3.t.haodai.net, bucket=loadgen, region=us-east-1, duration=60, threads=1, loops=1, size=1M
+Loop 1: PUT time 60.1 secs, objects = 297, speed = 4.9MB/sec, 4.9 operations/sec. Slowdowns = 0
+Loop 1: GET time 7.8 secs, objects = 297, speed = 38.2MB/sec, 38.2 operations/sec. Slowdowns = 0
+Loop 1: DELETE time 24.2 secs, 12.3 deletes/sec. Slowdowns = 0
+[wen@t s3-benchmark]$ . miniostest.env 
+[wen@t s3-benchmark]$ s3-benchmark 
+Wasabi benchmark program v2.0
+Parameters: url=http://minio-cluster.tt.haodai.net, bucket=loadgen, region=us-east-1, duration=60, threads=1, loops=1, size=1M
+Loop 1: PUT time 60.0 secs, objects = 576, speed = 9.6MB/sec, 9.6 operations/sec. Slowdowns = 0
+Loop 1: GET time 9.4 secs, objects = 576, speed = 61.3MB/sec, 61.3 operations/sec. Slowdowns = 0
+Loop 1: DELETE time 4.2 secs, 138.4 deletes/sec. Slowdowns = 0
+[wen@t s3-benchmark]$ 
+[wen@t s3-benchmark]$ . ceph.env 
+[wen@t s3-benchmark]$ s3-benchmark -t 10
+Wasabi benchmark program v2.0
+Parameters: url=http://s3.t.haodai.net, bucket=loadgen, region=us-east-1, duration=60, threads=10, loops=1, size=1M
+Loop 1: PUT time 60.9 secs, objects = 513, speed = 8.4MB/sec, 8.4 operations/sec. Slowdowns = 0
+Loop 1: GET time 45.6 secs, objects = 5130, speed = 112.5MB/sec, 112.5 operations/sec. Slowdowns = 0
+Loop 1: DELETE time 38.4 secs, 13.4 deletes/sec. Slowdowns = 0
+[wen@t s3-benchmark]$ 
+[wen@t s3-benchmark]$ . miniostest.env 
+[wen@t s3-benchmark]$ s3-benchmark -t 10
+Wasabi benchmark program v2.0
+Parameters: url=http://minio-cluster.tt.haodai.net, bucket=loadgen, region=us-east-1, duration=60, threads=10, loops=1, size=1M
+Loop 1: PUT time 62.4 secs, objects = 832, speed = 13.3MB/sec, 13.3 operations/sec. Slowdowns = 0
+Loop 1: GET time 60.1 secs, objects = 6774, speed = 112.8MB/sec, 112.8 operations/sec. Slowdowns = 0
+Loop 1: DELETE time 1.4 secs, 578.1 deletes/sec. Slowdowns = 0
+[wen@t s3-benchmark]$ 
+```
 s3-benchmark is a performance testing tool provided by Wasabi for performing S3 operations (PUT, GET, and DELETE) for objects. Besides the bucket configuration, the object size and number of threads varied be given for different tests.
 
 The testing tool is loosely based on the Nasuni (http://www6.nasuni.com/rs/nasuni/images/Nasuni-2015-State-of-Cloud-Storage-Report.pdf) performance benchmarking methodologies used to test the performance of different cloud storage providers
