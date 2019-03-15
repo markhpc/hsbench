@@ -4,6 +4,9 @@
 *.so
 *.dylib
 
+*.log
+s3-benchmark
+
 # Test binary, build with `go test -c`
 *.test
 
