@@ -1,6 +1,6 @@
 # Introduction
 
-## This is a fork version of [wasabi-tech/se-benchmark](https://github.com/wasabi-tech/s3-benchmark), which support minio and ceph.
+## This is a fork version of [wasabi-tech/se-benchmark](https://github.com/wasabi-tech/s3-benchmark), to make it support minio and ceph.
 
 Example output:
 
