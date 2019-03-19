@@ -100,8 +100,11 @@ func createBucket(ignore_errors bool) {
 	// Create our bucket (may already exist without error)
 	svc := s3.New(session.New(), cfg)
 	in := &s3.CreateBucketInput{Bucket: aws.String(bucket)}
-	if _, err := svc.CreateBucket(in); err != nil &&
-		!strings.Contains(err.Error(), s3.ErrCodeBucketAlreadyOwnedByYou) {
+	if _, err := svc.CreateBucket(in); err != nil {
+		if strings.Contains(err.Error(), s3.ErrCodeBucketAlreadyOwnedByYou) ||
+			strings.Contains(err.Error(), "BucketAlreadyExists") {
+			return
+		}
 		if ignore_errors {
 			log.Printf("WARNING: createBucket %s error, ignoring %v", bucket, err)
 		} else {
@@ -265,7 +268,7 @@ func runUpload(thread_num int, keys *sync.Map) {
 			break
 		}
 		keys.Store(key, nil)
-		fmt.Printf("upload thread %v, %v\r", thread_num, key)
+		fmt.Fprintf(os.Stderr, "upload thread %v, %v\r", thread_num, key)
 
 		// req, _ := http.NewRequest("PUT", prefix, fileobj)
 		// req.Header.Set("Content-Length", strconv.FormatUint(object_size, 10))
@@ -315,7 +318,7 @@ func runDownload(thread_num int, keys *sync.Map) {
 			log.Fatal("convert key back error")
 		}
 
-		fmt.Printf("download thread %v, %v\r", thread_num, key)
+		fmt.Fprintf(os.Stderr, "download thread %v, %v\r", thread_num, key)
 
 		r := &s3.GetObjectInput{
 			Bucket: &bucket,
@@ -388,7 +391,7 @@ func runDelete(thread_num int) {
 		if errcnt > 2 {
 			break
 		}
-		fmt.Printf("delete thread %v, %v\r", thread_num, key)
+		fmt.Fprintf(os.Stderr, "delete thread %v, %v\r", thread_num, key)
 
 		// prefix := fmt.Sprintf("%s/%s/Object-%d", url_host, bucket, objnum)
 		// req, _ := http.NewRequest("DELETE", prefix, nil)
@@ -469,6 +472,8 @@ func main() {
 	createBucket(true)
 	deleteAllObjects()
 
+	var uploadspeed, downloadspeed float64
+
 	// Loop running the tests
 	for loop := 1; loop <= loops; loop++ {
 
@@ -500,6 +505,7 @@ func main() {
 		logit(fmt.Sprintf("Loop %d: PUT time %.1f secs, objects = %d, speed = %sB/sec, %.1f operations/sec. Slowdowns = %d",
 			loop, upload_time, upload_count, bytefmt.ByteSize(uint64(bps)), float64(upload_count)/upload_time, upload_slowdown_count))
 
+		uploadspeed = bps / bytefmt.MEGABYTE
 		// count := 0
 		// keys.Range(func(k, value interface{}) bool {
 		// 	count++
@@ -525,6 +531,8 @@ func main() {
 		logit(fmt.Sprintf("Loop %d: GET time %.1f secs, objects = %d, speed = %sB/sec, %.1f operations/sec. Slowdowns = %d",
 			loop, download_time, download_count, bytefmt.ByteSize(uint64(bps)), float64(download_count)/download_time, download_slowdown_count))
 
+		downloadspeed = bps / bytefmt.MEGABYTE
+
 		// Run the delete case
 		running_threads = int32(threads)
 		starttime = time.Now()
@@ -544,4 +552,7 @@ func main() {
 	}
 
 	// All done
+	name := strings.Split(strings.TrimPrefix(url_host, "http://"), ".")[0]
+	fmt.Printf("result title: name-concurrency-size, uloadspeed, downloadspeed\n")
+	fmt.Printf("result csv: %v-%v-%v,%.2f,%.2f\n", name, threads, sizeArg, uploadspeed, downloadspeed)
 }
