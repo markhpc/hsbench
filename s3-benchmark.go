@@ -32,7 +32,7 @@ import (
 )
 
 // Global variables
-var access_key, secret_key, url_host, bucket_prefix, region, sizeArg string
+var access_key, secret_key, url_host, bucket_prefix, object_prefix, region, sizeArg string
 var buckets []string
 var duration_secs, threads, loops, bucket_count int
 var object_data []byte
@@ -195,9 +195,8 @@ func runUpload(thread_num int) {
 			break
 		}
 		fileobj := bytes.NewReader(object_data)
-		//prefix := fmt.Sprintf("%s/%s/Object-%d", url_host, buckets[bucket_num], objnum)
 
-		key := fmt.Sprintf("Object-%d", objnum)
+                key := fmt.Sprintf("%s%012d", object_prefix, objnum)
 		r := &s3.PutObjectInput{
 			Bucket: &buckets[bucket_num],
 			Key:    &key,
@@ -218,7 +217,7 @@ func runUpload(thread_num int) {
 		if errcnt > 2 {
 			break
 		}
-		fmt.Fprintf(os.Stderr, "upload thread %v, %v\r", thread_num, key)
+		fmt.Fprintf(os.Stderr, "upload thread %5v, %v\r", thread_num, key)
 	}
 	// Remember last done time
 	upload_finish = time.Now()
@@ -241,8 +240,7 @@ func runDownload(thread_num int) {
                 }
 
 		bucket_num := objnum % int64(bucket_count)
-                key := fmt.Sprintf("Object-%d", objnum)
-                fmt.Fprintf(os.Stderr, "download thread %v, %v\r", thread_num, key)
+                key := fmt.Sprintf("%s%012d", object_prefix, objnum)
                 r := &s3.GetObjectInput{
                         Bucket: &buckets[bucket_num],
                         Key:    &key,
@@ -263,6 +261,7 @@ func runDownload(thread_num int) {
                 if errcnt > 2 {
                        break 
                 }
+                fmt.Fprintf(os.Stderr, "download thread %5v, %v\r", thread_num, key)
 	}
 	// Remember last done time
 	download_finish = time.Now()
@@ -283,8 +282,7 @@ func runDelete(thread_num int) {
 
                 bucket_num := objnum % int64(bucket_count)
 
-                key := fmt.Sprintf("Object-%d", objnum)
-                fmt.Fprintf(os.Stderr, "delete thread %v, %v\r", thread_num, key)
+                key := fmt.Sprintf("%s%012d", object_prefix, objnum)
                 r := &s3.DeleteObjectInput{
                         Bucket: &buckets[bucket_num],
                         Key:    &key,
@@ -301,7 +299,7 @@ func runDelete(thread_num int) {
                 if errcnt > 2 {
 			break
                 }
-                fmt.Fprintf(os.Stderr, "delete thread %v, %v\r", thread_num, key)
+                fmt.Fprintf(os.Stderr, "delete thread %5v, %v\r", thread_num, key)
 	}
 	// Remember last done time
 	delete_finish = time.Now()
@@ -317,10 +315,11 @@ func init() {
 	myflag.StringVar(&access_key, "a", os.Getenv("AWS_ACCESS_KEY_ID"), "Access key")
 	myflag.StringVar(&secret_key, "s", os.Getenv("AWS_SECRET_ACCESS_KEY"), "Secret key")
 	myflag.StringVar(&url_host, "u", os.Getenv("AWS_HOST"), "URL for host with method prefix")
-	myflag.StringVar(&bucket_prefix, "p", "hotsauce_benchmark", "Prefix for buckets")
-        myflag.IntVar(&bucket_count, "b", 1, "Number of buckets to distribute IOs across")
+        myflag.StringVar(&object_prefix, "o", "", "Prefix for objects")
+	myflag.StringVar(&bucket_prefix, "p", "hotsauce_bench", "Prefix for buckets")
 	myflag.StringVar(&region, "r", "us-east-1", "Region for testing")
         myflag.Int64Var(&object_count, "n", -1, "Maximum number of objects <-1 for unlimited>")
+        myflag.IntVar(&bucket_count, "b", 1, "Number of buckets to distribute IOs across")
 	myflag.IntVar(&duration_secs, "d", 60, "Maximum test duration in seconds <-1 for unlimited>")
 	myflag.IntVar(&threads, "t", 1, "Number of threads to run")
 	myflag.IntVar(&loops, "l", 1, "Number of times to repeat test")
@@ -375,7 +374,7 @@ func main() {
 
 	// Create the buckets and delete all the objects
         for i := 0; i < bucket_count; i++ {
-                buckets = append(buckets, fmt.Sprintf("%s-%d", bucket_prefix, i))
+                buckets = append(buckets, fmt.Sprintf("%s%012d", bucket_prefix, i))
 		createBucket(i, true)
 		deleteAllObjects(i)
         }
