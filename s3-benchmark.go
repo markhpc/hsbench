@@ -118,22 +118,22 @@ func deleteAllObjects(bucket_num int) {
 		log.Fatal("can't list objects")
 	}
 	n := len(out.Contents)
-	if n == 0 {
-		return
-	}
-	fmt.Printf("got existing %v objects, try to delete now...\n", n)
+	for n > 0 {
+		fmt.Printf("got existing %v objects, try to delete now...\n", n)
 
-	for _, v := range out.Contents {
-		svc.DeleteObject(&s3.DeleteObjectInput{
-			Bucket: &buckets[bucket_num],
-			Key:    v.Key,
-		})
+		for _, v := range out.Contents {
+			svc.DeleteObject(&s3.DeleteObjectInput{
+				Bucket: &buckets[bucket_num],
+				Key:    v.Key,
+			})
+		}
+		out, err = svc.ListObjects(&s3.ListObjectsInput{Bucket: &buckets[bucket_num]})
+		if err != nil {
+			log.Fatal("can't list objects")
+		}
+		n = len(out.Contents)
+		fmt.Printf("after delete, got %v objects\n", n)
 	}
-	out, err = svc.ListObjects(&s3.ListObjectsInput{Bucket: &buckets[bucket_num]})
-	if err != nil {
-		log.Fatal("can't list objects")
-	}
-	fmt.Printf("after delete, got %v objects\n", len(out.Contents))
 }
 
 // canonicalAmzHeaders -- return the x-amz headers canonicalized
