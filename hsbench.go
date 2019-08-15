@@ -1,5 +1,6 @@
-// s3-benchmark.go
+// hsbench.go
 // Copyright (c) 2017 Wasabi Technology, Inc.
+// Copyright (c) 2019 Red Hat Inc.
 
 package main
 
