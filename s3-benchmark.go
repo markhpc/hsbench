@@ -40,17 +40,9 @@ var duration_secs, threads, loops int
 var object_data []byte
 var object_data_md5 string
 var running_threads, bucket_count, object_count, object_size, op_counter int64
+var object_count_flag bool
 var endtime time.Time
 var interval float64
-
-func logit(msg string) {
-	fmt.Println(msg)
-	logfile, _ := os.OpenFile("benchmark.log", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
-	if logfile != nil {
-		logfile.WriteString(time.Now().Format(http.TimeFormat) + ": " + msg + "\n")
-		logfile.Close()
-	}
-}
 
 // Our HTTP transport used for the roundtripper below
 var HTTPTransport http.RoundTripper = &http.Transport{
@@ -426,7 +418,7 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
                 }
 
 		objnum := atomic.AddInt64(&op_counter, 1)
-                if objnum >= object_count {
+                if object_count > -1 && objnum >= object_count {
 			atomic.AddInt64(&op_counter, -1)
                         break
                 }
@@ -470,8 +462,12 @@ func runDelete(thread_num int, stats *Stats) {
 	svc := s3.New(session.New(), cfg)
 
 	for {
+                if duration_secs > -1 && time.Now().After(endtime) {
+                        break
+                }
+
                 objnum := atomic.AddInt64(&op_counter, 1)
-		if objnum >= object_count {
+		if object_count > -1 && objnum >= object_count {
                         atomic.AddInt64(&op_counter, -1)
 			break
 		}
@@ -607,6 +603,13 @@ func runWrapper(loop int, r rune) {
         endtime = time.Now().Add(time.Second * time.Duration(duration_secs))
 	var stats Stats
 
+        // If we perviously set the object count after running a put
+        // test, set the object count back to -1 for the new put test.
+	if r == 'p' && object_count_flag {
+	        object_count = -1
+                object_count_flag = false
+        }
+
 	switch r {
         case 'c':
                 log.Printf("Running Loop %d BUCKET CLEAR TEST", loop)
@@ -649,6 +652,14 @@ func runWrapper(loop int, r rune) {
         // Wait for it to finish
         for atomic.LoadInt64(&running_threads) > 0 {
                 time.Sleep(time.Millisecond)
+        }
+
+
+        // If the user didn't set the object_count, we can set it here
+        // to limit subsequent get/del tests to valid objects only.
+	if r == 'p' && object_count < 0 {
+		object_count = op_counter + 1
+                object_count_flag = true
         }
         stats.log()
 }
@@ -747,9 +758,8 @@ func initData() {
 
 func main() {
 	// Hello
-	fmt.Println("Wasabi benchmark program v2.0")
+	log.Printf("Hotsauce S3 Benchmark Version 0.1")
 
-	//fmt.Println("accesskey:", access_key, "secretkey:", secret_key)
 	cfg = &aws.Config{
 		Endpoint:    aws.String(url_host),
 		Credentials: credentials.NewStaticCredentials(access_key, secret_key, ""),
@@ -760,8 +770,19 @@ func main() {
 	}
 
 	// Echo the parameters
-	logit(fmt.Sprintf("Parameters: url=%s, bucket_prefix=%s, bucket_count=%d, region=%s, duration=%d, threads=%d, loops=%d, size=%s",
-		url_host, bucket_prefix, bucket_count, region, duration_secs, threads, loops, sizeArg))
+	log.Printf("Parameters:")
+	log.Printf("url=%s", url_host)
+	log.Printf("object_prefix=%s", object_prefix)
+	log.Printf("bucket_prefix=%s", bucket_prefix)
+	log.Printf("region=%s", region)
+	log.Printf("modes=%s", modes)
+	log.Printf("object_count=%d", object_count)
+	log.Printf("bucket_count=%d", bucket_count)
+	log.Printf("duration=%d", duration_secs)
+	log.Printf("threads=%d", threads)
+	log.Printf("loops=%d", loops)
+	log.Printf("size=%s", sizeArg)
+	log.Printf("interval=%f", interval)
 
 	// Init Data
 	initData()
