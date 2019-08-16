@@ -165,3 +165,10 @@ $ ./hsbench -a <access key> -s <secret key> -u http://127.0.0.1:7480 -z 4K -d 10
 2019/08/15 18:33:05 Loop: 0, Int: ALL, Dur(s): 0.1, Mode: BDEL, Ops: 10, MB/s: 0.00, IO/s: 133, Lat(ms): [ min: 54.1, avg: 68.9, 99%: 75.2, max: 75.2 ], Slowdowns: 0
 ```
 
+One notable point is that like the s3-benchmark program it is based on, hsbench has relatively low CPU overhead compared to some other S3 benchmarks.  During the 4K PUT phase of the above test:
+
+```
+22628 root      20   0 6700416 5.308g  28072 S 413.3  8.4 676:28.86 ceph-osd
+23329 root      20   0 1658700 253068  21320 S 333.3  0.4 530:06.76 radosgw
+ 9017 perf      20   0 2184580  33612   6568 S 173.3  0.1   0:05.25 hsbench
+```
