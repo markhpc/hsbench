@@ -20,7 +20,7 @@ hsbench tries to improve on the original Wasabi s3-benchmark in the following wa
 
 ## Limitations
 
-*	hsbench does not yet log log/csv/json output (will be added pending community feedback)
+*	hsbench does not currently support multiple AWS endpoints
 *	hsbench has no built-in provisions for making graphs
 *	hsbench does not yet support mixed IO workloads
 *	hsbench is still in alpha and options/output may change at any moment
