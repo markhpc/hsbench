@@ -69,6 +69,8 @@ OPTIONS:
     	Run modes in order.  See NOTES for more info (default "cxipgdx")
   -n int
     	Maximum number of objects <-1 for unlimited> (default -1)
+  -o string
+    	Write CSV output to this file
   -op string
     	Prefix for objects
   -r string
@@ -106,63 +108,64 @@ Below is an example run of the benchmark using a 10s test duration, 10 threads,
 running on an Intel P3700 NVMe device.  
 
 ```
-$ ./hsbench -a <access key> -s <secret key> -u http://127.0.0.1:7480 -z 4K -d 10 -t 10 -b 10
-2019/08/15 18:32:36 Hotsauce S3 Benchmark Version 0.1
-2019/08/15 18:32:36 Parameters:
-2019/08/15 18:32:36 url=http://127.0.0.1:7480
-2019/08/15 18:32:36 object_prefix=
-2019/08/15 18:32:36 bucket_prefix=hotsauce_bench
-2019/08/15 18:32:36 region=us-east-1
-2019/08/15 18:32:36 modes=cxipgdx
-2019/08/15 18:32:36 object_count=-1
-2019/08/15 18:32:36 bucket_count=10
-2019/08/15 18:32:36 duration=10
-2019/08/15 18:32:36 threads=10
-2019/08/15 18:32:36 loops=1
-2019/08/15 18:32:36 size=4K
-2019/08/15 18:32:36 interval=1.000000
-2019/08/15 18:32:36 Running Loop 0 BUCKET CLEAR TEST
-2019/08/15 18:32:36 Loop: 0, Int: ALL, Dur(s): 0.0, Mode: BCLR, Ops: 0, MB/s: 0.00, IO/s: 0, Lat(ms): [ min: 0.0, avg: 0.0, 99%: 0.0, max: 0.0 ], Slowdowns: 0
-2019/08/15 18:32:36 Running Loop 0 BUCKET DELETE TEST
-2019/08/15 18:32:36 Loop: 0, Int: ALL, Dur(s): 0.0, Mode: BDEL, Ops: 0, MB/s: 0.00, IO/s: 0, Lat(ms): [ min: 0.0, avg: 0.0, 99%: 0.0, max: 0.0 ], Slowdowns: 0
-2019/08/15 18:32:36 Running Loop 0 BUCKET INIT TEST
-2019/08/15 18:32:36 Loop: 0, Int: ALL, Dur(s): 0.0, Mode: BINIT, Ops: 10, MB/s: 0.00, IO/s: 796, Lat(ms): [ min: 10.1, avg: 11.3, 99%: 12.4, max: 12.4 ], Slowdowns: 0
-2019/08/15 18:32:36 Running Loop 0 OBJECT PUT TEST
-2019/08/15 18:32:37 Loop: 0, Int: 1, Dur(s): 1.0, Mode: PUT, Ops: 5201, MB/s: 20.32, IO/s: 5201, Lat(ms): [ min: 1.2, avg: 1.9, 99%: 3.7, max: 6.1 ], Slowdowns: 0
-2019/08/15 18:32:38 Loop: 0, Int: 2, Dur(s): 1.0, Mode: PUT, Ops: 5372, MB/s: 20.98, IO/s: 5372, Lat(ms): [ min: 1.3, avg: 1.9, 99%: 3.3, max: 4.3 ], Slowdowns: 0
-2019/08/15 18:32:39 Loop: 0, Int: 3, Dur(s): 1.0, Mode: PUT, Ops: 5270, MB/s: 20.59, IO/s: 5270, Lat(ms): [ min: 1.2, avg: 1.9, 99%: 3.4, max: 10.3 ], Slowdowns: 0
-2019/08/15 18:32:40 Loop: 0, Int: 4, Dur(s): 1.0, Mode: PUT, Ops: 5280, MB/s: 20.62, IO/s: 5280, Lat(ms): [ min: 1.2, avg: 1.9, 99%: 3.4, max: 9.4 ], Slowdowns: 0
-2019/08/15 18:32:41 Loop: 0, Int: 5, Dur(s): 1.0, Mode: PUT, Ops: 5356, MB/s: 20.92, IO/s: 5356, Lat(ms): [ min: 1.3, avg: 1.9, 99%: 3.2, max: 4.3 ], Slowdowns: 0
-2019/08/15 18:32:42 Loop: 0, Int: 6, Dur(s): 1.0, Mode: PUT, Ops: 5279, MB/s: 20.62, IO/s: 5279, Lat(ms): [ min: 1.3, avg: 1.9, 99%: 3.0, max: 11.8 ], Slowdowns: 0
-2019/08/15 18:32:43 Loop: 0, Int: 7, Dur(s): 1.0, Mode: PUT, Ops: 5296, MB/s: 20.69, IO/s: 5296, Lat(ms): [ min: 1.2, avg: 1.9, 99%: 3.0, max: 10.2 ], Slowdowns: 0
-2019/08/15 18:32:44 Loop: 0, Int: 8, Dur(s): 1.0, Mode: PUT, Ops: 5319, MB/s: 20.78, IO/s: 5319, Lat(ms): [ min: 1.3, avg: 1.9, 99%: 2.9, max: 3.7 ], Slowdowns: 0
-2019/08/15 18:32:45 Loop: 0, Int: 9, Dur(s): 1.0, Mode: PUT, Ops: 5161, MB/s: 20.16, IO/s: 5161, Lat(ms): [ min: 1.2, avg: 1.9, 99%: 3.1, max: 9.8 ], Slowdowns: 0
-2019/08/15 18:32:46 Loop: 0, Int: 10, Dur(s): 1.0, Mode: PUT, Ops: 4768, MB/s: 18.62, IO/s: 4768, Lat(ms): [ min: 1.2, avg: 2.1, 99%: 3.0, max: 89.3 ], Slowdowns: 0
-2019/08/15 18:32:46 Loop: 0, Int: ALL, Dur(s): 10.0, Mode: PUT, Ops: 52312, MB/s: 20.43, IO/s: 5230, Lat(ms): [ min: 1.2, avg: 1.9, 99%: 3.2, max: 89.3 ], Slowdowns: 0
-2019/08/15 18:32:46 Running Loop 0 OBJECT GET TEST
-2019/08/15 18:32:47 Loop: 0, Int: 1, Dur(s): 1.0, Mode: GET, Ops: 1190, MB/s: 4.65, IO/s: 1190, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.3, max: 1.6 ], Slowdowns: 0
-2019/08/15 18:32:48 Loop: 0, Int: 2, Dur(s): 1.0, Mode: GET, Ops: 1142, MB/s: 4.46, IO/s: 1142, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.1, max: 1.7 ], Slowdowns: 0
-2019/08/15 18:32:49 Loop: 0, Int: 3, Dur(s): 1.0, Mode: GET, Ops: 1111, MB/s: 4.34, IO/s: 1111, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.1, max: 1.2 ], Slowdowns: 0
-2019/08/15 18:32:50 Loop: 0, Int: 4, Dur(s): 1.0, Mode: GET, Ops: 1113, MB/s: 4.35, IO/s: 1113, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.1, max: 3.7 ], Slowdowns: 0
-2019/08/15 18:32:51 Loop: 0, Int: 5, Dur(s): 1.0, Mode: GET, Ops: 1083, MB/s: 4.23, IO/s: 1083, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.2, max: 1.4 ], Slowdowns: 0
-2019/08/15 18:32:52 Loop: 0, Int: 6, Dur(s): 1.0, Mode: GET, Ops: 1089, MB/s: 4.25, IO/s: 1089, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.1, max: 1.4 ], Slowdowns: 0
-2019/08/15 18:32:53 Loop: 0, Int: 7, Dur(s): 1.0, Mode: GET, Ops: 1122, MB/s: 4.38, IO/s: 1122, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.2, max: 1.5 ], Slowdowns: 0
-2019/08/15 18:32:54 Loop: 0, Int: 8, Dur(s): 1.0, Mode: GET, Ops: 1089, MB/s: 4.25, IO/s: 1089, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.1, max: 1.4 ], Slowdowns: 0
-2019/08/15 18:32:55 Loop: 0, Int: 9, Dur(s): 1.0, Mode: GET, Ops: 1059, MB/s: 4.14, IO/s: 1059, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.1, max: 5.7 ], Slowdowns: 0
-2019/08/15 18:32:56 Loop: 0, Int: ALL, Dur(s): 10.0, Mode: GET, Ops: 11086, MB/s: 4.31, IO/s: 1104, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.1, max: 5.7 ], Slowdowns: 0
-2019/08/15 18:32:56 Running Loop 0 OBJECT DELETE TEST
-2019/08/15 18:32:57 Loop: 0, Int: 1, Dur(s): 1.0, Mode: DEL, Ops: 5716, MB/s: 22.33, IO/s: 5716, Lat(ms): [ min: 1.1, avg: 1.7, 99%: 2.7, max: 3.8 ], Slowdowns: 0
-2019/08/15 18:32:58 Loop: 0, Int: 2, Dur(s): 1.0, Mode: DEL, Ops: 5661, MB/s: 22.11, IO/s: 5661, Lat(ms): [ min: 1.1, avg: 1.8, 99%: 2.8, max: 9.6 ], Slowdowns: 0
-2019/08/15 18:32:59 Loop: 0, Int: 3, Dur(s): 1.0, Mode: DEL, Ops: 5616, MB/s: 21.94, IO/s: 5616, Lat(ms): [ min: 1.2, avg: 1.8, 99%: 2.9, max: 10.1 ], Slowdowns: 0
-2019/08/15 18:33:00 Loop: 0, Int: 4, Dur(s): 1.0, Mode: DEL, Ops: 5608, MB/s: 21.91, IO/s: 5608, Lat(ms): [ min: 1.2, avg: 1.8, 99%: 2.7, max: 7.7 ], Slowdowns: 0
-2019/08/15 18:33:01 Loop: 0, Int: 5, Dur(s): 1.0, Mode: DEL, Ops: 5529, MB/s: 21.60, IO/s: 5529, Lat(ms): [ min: 1.2, avg: 1.8, 99%: 3.0, max: 9.3 ], Slowdowns: 0
-2019/08/15 18:33:02 Loop: 0, Int: 6, Dur(s): 1.0, Mode: DEL, Ops: 5438, MB/s: 21.24, IO/s: 5438, Lat(ms): [ min: 1.2, avg: 1.8, 99%: 3.0, max: 10.4 ], Slowdowns: 0
-2019/08/15 18:33:03 Loop: 0, Int: 7, Dur(s): 1.0, Mode: DEL, Ops: 5515, MB/s: 21.54, IO/s: 5515, Lat(ms): [ min: 1.3, avg: 1.8, 99%: 2.9, max: 7.5 ], Slowdowns: 0
-2019/08/15 18:33:04 Loop: 0, Int: 8, Dur(s): 1.0, Mode: DEL, Ops: 5481, MB/s: 21.41, IO/s: 5481, Lat(ms): [ min: 1.2, avg: 1.8, 99%: 3.0, max: 9.7 ], Slowdowns: 0
-2019/08/15 18:33:05 Loop: 0, Int: 9, Dur(s): 1.0, Mode: DEL, Ops: 5614, MB/s: 21.93, IO/s: 5614, Lat(ms): [ min: 1.2, avg: 1.8, 99%: 3.1, max: 8.0 ], Slowdowns: 0
-2019/08/15 18:33:05 Loop: 0, Int: ALL, Dur(s): 9.4, Mode: DEL, Ops: 52312, MB/s: 21.76, IO/s: 5571, Lat(ms): [ min: 1.1, avg: 1.8, 99%: 2.9, max: 10.4 ], Slowdowns: 0
-2019/08/15 18:33:05 Running Loop 0 BUCKET DELETE TEST
-2019/08/15 18:33:05 Loop: 0, Int: ALL, Dur(s): 0.1, Mode: BDEL, Ops: 10, MB/s: 0.00, IO/s: 133, Lat(ms): [ min: 54.1, avg: 68.9, 99%: 75.2, max: 75.2 ], Slowdowns: 0
+$ ./hsbench -a 3JZ0SVK94Z55OZU5J1N0 -s OdzEPyDDZ0ls1haDUu1NVWkJDcnG74Lb7XylfXRM -u http://127.0.0.1:7480 -z 4K -d 10 -t 10 -b 10 -o test.csv
+2019/08/19 08:18:51 Hotsauce S3 Benchmark Version 0.1
+2019/08/19 08:18:51 Parameters:
+2019/08/19 08:18:51 url=http://127.0.0.1:7480
+2019/08/19 08:18:51 object_prefix=
+2019/08/19 08:18:51 bucket_prefix=hotsauce_bench
+2019/08/19 08:18:51 region=us-east-1
+2019/08/19 08:18:51 modes=cxipgdx
+2019/08/19 08:18:51 object_count=-1
+2019/08/19 08:18:51 bucket_count=10
+2019/08/19 08:18:51 duration=10
+2019/08/19 08:18:51 threads=10
+2019/08/19 08:18:51 loops=1
+2019/08/19 08:18:51 size=4K
+2019/08/19 08:18:51 interval=1.000000
+2019/08/19 08:18:51 Running Loop 0 BUCKET CLEAR TEST
+2019/08/19 08:18:51 Loop: 0, Int: TOTAL, Dur(s): 0.0, Mode: BCLR, Ops: 0, MB/s: 0.00, IO/s: 0, Lat(ms): [ min: 0.0, avg: 0.0, 99%: 0.0, max: 0.0 ], Slowdowns: 0
+2019/08/19 08:18:51 Running Loop 0 BUCKET DELETE TEST
+2019/08/19 08:18:51 Loop: 0, Int: TOTAL, Dur(s): 0.0, Mode: BDEL, Ops: 0, MB/s: 0.00, IO/s: 0, Lat(ms): [ min: 0.0, avg: 0.0, 99%: 0.0, max: 0.0 ], Slowdowns: 0
+2019/08/19 08:18:51 Running Loop 0 BUCKET INIT TEST
+2019/08/19 08:18:51 Loop: 0, Int: TOTAL, Dur(s): 0.0, Mode: BINIT, Ops: 10, MB/s: 0.00, IO/s: 968, Lat(ms): [ min: 7.5, avg: 8.7, 99%: 10.2, max: 10.2 ], Slowdowns: 0
+2019/08/19 08:18:51 Running Loop 0 OBJECT PUT TEST
+2019/08/19 08:18:52 Loop: 0, Int: 0, Dur(s): 1.0, Mode: PUT, Ops: 5255, MB/s: 20.53, IO/s: 5255, Lat(ms): [ min: 1.3, avg: 1.9, 99%: 3.4, max: 14.1 ], Slowdowns: 0
+2019/08/19 08:18:53 Loop: 0, Int: 1, Dur(s): 1.0, Mode: PUT, Ops: 5237, MB/s: 20.46, IO/s: 5237, Lat(ms): [ min: 1.2, avg: 1.9, 99%: 3.4, max: 11.1 ], Slowdowns: 0
+2019/08/19 08:18:54 Loop: 0, Int: 2, Dur(s): 1.0, Mode: PUT, Ops: 5454, MB/s: 21.30, IO/s: 5454, Lat(ms): [ min: 1.2, avg: 1.8, 99%: 2.9, max: 7.3 ], Slowdowns: 0
+2019/08/19 08:18:55 Loop: 0, Int: 3, Dur(s): 1.0, Mode: PUT, Ops: 5318, MB/s: 20.77, IO/s: 5318, Lat(ms): [ min: 1.3, avg: 1.9, 99%: 3.7, max: 7.1 ], Slowdowns: 0
+2019/08/19 08:18:56 Loop: 0, Int: 4, Dur(s): 1.0, Mode: PUT, Ops: 5364, MB/s: 20.95, IO/s: 5364, Lat(ms): [ min: 1.3, avg: 1.9, 99%: 2.9, max: 7.8 ], Slowdowns: 0
+2019/08/19 08:18:57 Loop: 0, Int: 5, Dur(s): 1.0, Mode: PUT, Ops: 5219, MB/s: 20.39, IO/s: 5219, Lat(ms): [ min: 1.3, avg: 1.9, 99%: 3.2, max: 16.8 ], Slowdowns: 0
+2019/08/19 08:18:58 Loop: 0, Int: 6, Dur(s): 1.0, Mode: PUT, Ops: 5200, MB/s: 20.31, IO/s: 5200, Lat(ms): [ min: 1.2, avg: 1.9, 99%: 3.1, max: 9.6 ], Slowdowns: 0
+2019/08/19 08:18:59 Loop: 0, Int: 7, Dur(s): 1.0, Mode: PUT, Ops: 5250, MB/s: 20.51, IO/s: 5250, Lat(ms): [ min: 1.3, avg: 1.9, 99%: 3.0, max: 7.3 ], Slowdowns: 0
+2019/08/19 08:19:00 Loop: 0, Int: 8, Dur(s): 1.0, Mode: PUT, Ops: 4701, MB/s: 18.36, IO/s: 4701, Lat(ms): [ min: 1.3, avg: 2.1, 99%: 3.5, max: 86.6 ], Slowdowns: 0
+2019/08/19 08:19:01 Loop: 0, Int: 9, Dur(s): 1.0, Mode: PUT, Ops: 5269, MB/s: 20.58, IO/s: 5269, Lat(ms): [ min: 1.3, avg: 1.9, 99%: 3.2, max: 11.4 ], Slowdowns: 0
+2019/08/19 08:19:01 Loop: 0, Int: TOTAL, Dur(s): 10.0, Mode: PUT, Ops: 52277, MB/s: 20.42, IO/s: 5227, Lat(ms): [ min: 1.2, avg: 1.9, 99%: 3.2, max: 86.6 ], Slowdowns: 0
+2019/08/19 08:19:01 Running Loop 0 OBJECT GET TEST
+2019/08/19 08:19:03 Loop: 0, Int: 0, Dur(s): 1.0, Mode: GET, Ops: 1275, MB/s: 4.98, IO/s: 1275, Lat(ms): [ min: 0.6, avg: 0.9, 99%: 1.4, max: 1.5 ], Slowdowns: 0
+2019/08/19 08:19:04 Loop: 0, Int: 1, Dur(s): 1.0, Mode: GET, Ops: 1286, MB/s: 5.02, IO/s: 1286, Lat(ms): [ min: 0.6, avg: 0.9, 99%: 1.3, max: 1.8 ], Slowdowns: 0
+2019/08/19 08:19:05 Loop: 0, Int: 2, Dur(s): 1.0, Mode: GET, Ops: 1112, MB/s: 4.34, IO/s: 1112, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.1, max: 1.6 ], Slowdowns: 0
+2019/08/19 08:19:06 Loop: 0, Int: 3, Dur(s): 1.0, Mode: GET, Ops: 1128, MB/s: 4.41, IO/s: 1128, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.2, max: 5.7 ], Slowdowns: 0
+2019/08/19 08:19:07 Loop: 0, Int: 4, Dur(s): 1.0, Mode: GET, Ops: 1112, MB/s: 4.34, IO/s: 1112, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.2, max: 1.7 ], Slowdowns: 0
+2019/08/19 08:19:08 Loop: 0, Int: 5, Dur(s): 1.0, Mode: GET, Ops: 1174, MB/s: 4.59, IO/s: 1174, Lat(ms): [ min: 0.6, avg: 0.9, 99%: 1.3, max: 1.6 ], Slowdowns: 0
+2019/08/19 08:19:09 Loop: 0, Int: 6, Dur(s): 1.0, Mode: GET, Ops: 1106, MB/s: 4.32, IO/s: 1106, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.1, max: 1.7 ], Slowdowns: 0
+2019/08/19 08:19:10 Loop: 0, Int: 7, Dur(s): 1.0, Mode: GET, Ops: 1132, MB/s: 4.42, IO/s: 1132, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.2, max: 11.6 ], Slowdowns: 0
+2019/08/19 08:19:11 Loop: 0, Int: 8, Dur(s): 1.0, Mode: GET, Ops: 1074, MB/s: 4.20, IO/s: 1074, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.2, max: 1.4 ], Slowdowns: 0
+2019/08/19 08:19:12 Loop: 0, Int: 9, Dur(s): 1.0, Mode: GET, Ops: 1080, MB/s: 4.22, IO/s: 1080, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.2, max: 1.6 ], Slowdowns: 0
+2019/08/19 08:19:12 Loop: 0, Int: TOTAL, Dur(s): 10.0, Mode: GET, Ops: 11481, MB/s: 4.47, IO/s: 1144, Lat(ms): [ min: 0.6, avg: 0.8, 99%: 1.2, max: 11.6 ], Slowdowns: 0
+2019/08/19 08:19:12 Running Loop 0 OBJECT DELETE TEST
+2019/08/19 08:19:13 Loop: 0, Int: 0, Dur(s): 1.0, Mode: DEL, Ops: 5591, MB/s: 21.84, IO/s: 5591, Lat(ms): [ min: 1.2, avg: 1.8, 99%: 3.3, max: 11.0 ], Slowdowns: 0
+2019/08/19 08:19:14 Loop: 0, Int: 1, Dur(s): 1.0, Mode: DEL, Ops: 5607, MB/s: 21.90, IO/s: 5607, Lat(ms): [ min: 1.2, avg: 1.8, 99%: 3.1, max: 13.9 ], Slowdowns: 0
+2019/08/19 08:19:15 Loop: 0, Int: 2, Dur(s): 1.0, Mode: DEL, Ops: 5680, MB/s: 22.19, IO/s: 5680, Lat(ms): [ min: 1.2, avg: 1.8, 99%: 2.7, max: 7.4 ], Slowdowns: 0
+2019/08/19 08:19:16 Loop: 0, Int: 3, Dur(s): 1.0, Mode: DEL, Ops: 5691, MB/s: 22.23, IO/s: 5691, Lat(ms): [ min: 1.2, avg: 1.8, 99%: 2.9, max: 6.5 ], Slowdowns: 0
+2019/08/19 08:19:17 Loop: 0, Int: 4, Dur(s): 1.0, Mode: DEL, Ops: 5565, MB/s: 21.74, IO/s: 5565, Lat(ms): [ min: 1.2, avg: 1.8, 99%: 3.6, max: 11.0 ], Slowdowns: 0
+2019/08/19 08:19:18 Loop: 0, Int: 5, Dur(s): 1.0, Mode: DEL, Ops: 5739, MB/s: 22.42, IO/s: 5739, Lat(ms): [ min: 1.2, avg: 1.7, 99%: 2.7, max: 3.5 ], Slowdowns: 0
+2019/08/19 08:19:19 Loop: 0, Int: 6, Dur(s): 1.0, Mode: DEL, Ops: 5613, MB/s: 21.93, IO/s: 5613, Lat(ms): [ min: 1.2, avg: 1.8, 99%: 2.9, max: 7.1 ], Slowdowns: 0
+2019/08/19 08:19:20 Loop: 0, Int: 7, Dur(s): 1.0, Mode: DEL, Ops: 5591, MB/s: 21.84, IO/s: 5591, Lat(ms): [ min: 1.2, avg: 1.8, 99%: 2.9, max: 16.3 ], Slowdowns: 0
+2019/08/19 08:19:21 Loop: 0, Int: 8, Dur(s): 1.0, Mode: DEL, Ops: 5784, MB/s: 22.59, IO/s: 5784, Lat(ms): [ min: 1.2, avg: 1.7, 99%: 2.9, max: 14.3 ], Slowdowns: 0
+2019/08/19 08:19:21 Loop: 0, Int: TOTAL, Dur(s): 9.3, Mode: DEL, Ops: 52277, MB/s: 22.04, IO/s: 5643, Lat(ms): [ min: 1.1, avg: 1.8, 99%: 3.0, max: 16.3 ], Slowdowns: 0
+2019/08/19 08:19:21 Running Loop 0 BUCKET DELETE TEST
+2019/08/19 08:19:21 Loop: 0, Int: TOTAL, Dur(s): 0.1, Mode: BDEL, Ops: 10, MB/s: 0.00, IO/s: 126, Lat(ms): [ min: 71.3, avg: 74.7, 99%: 79.3, max: 79.3 ], Slowdowns: 0
 ```
 
 One notable point is that like the s3-benchmark program it is based on, hsbench has relatively low CPU overhead compared to some other S3 benchmarks.  During the 4K PUT phase of the above test:
