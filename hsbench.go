@@ -11,6 +11,7 @@ import (
 	"crypto/sha1"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/csv"
 	"flag"
 	"fmt"
 	"io"
@@ -35,7 +36,7 @@ import (
 )
 
 // Global variables
-var access_key, secret_key, url_host, bucket_prefix, object_prefix, region, modes, sizeArg string
+var access_key, secret_key, url_host, bucket_prefix, object_prefix, region, modes, output, sizeArg string
 var buckets []string
 var duration_secs, threads, loops int
 var object_data []byte
@@ -44,6 +45,7 @@ var running_threads, bucket_count, object_count, object_size, op_counter int64
 var object_count_flag bool
 var endtime time.Time
 var interval float64
+var csvWriter *csv.Writer
 
 // Our HTTP transport used for the roundtripper below
 var HTTPTransport http.RoundTripper = &http.Transport{
@@ -134,9 +136,129 @@ func setSignature(req *http.Request) {
 }
 
 type IntervalStats struct {
+	loop int
+	name string
+	mode string
 	bytes int64
 	slowdowns int64
+        intervalNano int64
 	latNano []int64
+}
+
+func (is *IntervalStats) makeOutputStats() OutputStats {
+        // Compute and log the stats
+        ops := len(is.latNano)
+        totalLat := int64(0);
+        minLat := float64(0);
+        maxLat := float64(0);
+        NinetyNineLat := float64(0);
+        avgLat := float64(0);
+        if ops > 0 {
+                minLat = float64(is.latNano[0]) / 1000000
+                maxLat = float64(is.latNano[ops - 1]) / 1000000
+                for i := range is.latNano {
+                        totalLat += is.latNano[i]
+                }
+                avgLat = float64(totalLat) / float64(ops) / 1000000
+                NintyNineLatNano := is.latNano[int64(math.Round(0.99*float64(ops))) - 1]
+                NinetyNineLat = float64(NintyNineLatNano) / 1000000
+        }
+        seconds := float64(is.intervalNano) / 1000000000
+        mbps := float64(is.bytes) / seconds / bytefmt.MEGABYTE
+        iops := float64(ops) / seconds
+
+        return OutputStats{ 
+                is.loop,
+                is.name,
+                seconds,
+                is.mode,
+                ops,
+                mbps,
+                iops,
+                minLat,
+                avgLat,
+                NinetyNineLat,
+                maxLat,
+                is.slowdowns}
+}
+
+type OutputStats struct {
+        loop int
+        intervalName string
+        seconds float64
+        mode string
+        ops int
+        mbps float64
+        iops float64
+        minLat float64
+        avgLat float64
+        NinetyNineLat float64
+	maxLat float64
+        slowdowns int64
+}
+
+func (o *OutputStats) log() {
+	log.Printf(
+                "Loop: %d, Int: %s, Dur(s): %.1f, Mode: %s, Ops: %d, MB/s: %.2f, IO/s: %.0f, Lat(ms): [ min: %.1f, avg: %.1f, 99%%: %.1f, max: %.1f ], Slowdowns: %d",
+                o.loop,
+                o.intervalName,
+                o.seconds,
+                o.mode,
+                o.ops,
+                o.mbps,
+                o.iops,
+                o.minLat,
+                o.avgLat,
+                o.NinetyNineLat,
+                o.maxLat,
+                o.slowdowns)
+}
+
+func (o *OutputStats) csv_header(w *csv.Writer) {
+	if w == nil {
+		log.Fatal("OutputStats Passed nil csv writer")
+	}
+
+	s := []string{
+		"Loop",
+		"Inteval",
+		"Duration(s)",
+		"Mode", "Ops",
+		"MB/s",
+		"IO/s",
+		"Min Latency (ms)",
+		"Avg Latency(ms)",
+		"99% Latency(ms)",
+		"Max Latency(ms)",
+		"Slowdowns"}
+
+	if err := w.Write(s); err != nil {
+		log.Fatal("Error writing to csv: ", err)
+	}
+}
+
+func (o *OutputStats) csv(w *csv.Writer) {
+	if w == nil {
+		log.Fatal("OutputStats Passed nil csv writer")
+	}
+
+	s := []string {
+		strconv.Itoa(o.loop),
+		o.intervalName,
+		strconv.FormatFloat(o.seconds, 'f', 2, 64),
+		o.mode,
+		strconv.Itoa(o.ops),
+		strconv.FormatFloat(o.mbps, 'f', 2, 64),
+		strconv.FormatFloat(o.iops, 'f', 2, 64),
+		strconv.FormatFloat(o.minLat, 'f', 2, 64),
+		strconv.FormatFloat(o.avgLat, 'f', 2, 64),
+		strconv.FormatFloat(o.NinetyNineLat, 'f', 2, 64),
+		strconv.FormatFloat(o.maxLat, 'f', 2, 64),
+		strconv.FormatInt(o.slowdowns, 10)}
+
+	if err := w.Write(s); err != nil {
+		log.Fatal("Error writing to csv: ", err)
+	}
 }
 
 type ThreadStats struct {
@@ -145,19 +267,29 @@ type ThreadStats struct {
 	intervals []IntervalStats
 }
 
-func makeThreadStats(s int64, intervalNano int64) ThreadStats {
-	ts := ThreadStats{start: s, curInterval: -1}
-	ts.updateIntervals(intervalNano)
+func makeThreadStats(s int64, loop int, mode string, intervalNano int64) ThreadStats {
+	ts := ThreadStats{s, 0, []IntervalStats{}}
+	ts.intervals = append(ts.intervals, IntervalStats{loop, "0", mode, 0, 0, intervalNano, []int64{}})
 	return ts
 }
 
-func (ts *ThreadStats) updateIntervals(intervalNano int64) int64 {
+func (ts *ThreadStats) updateIntervals(loop int, mode string, intervalNano int64) int64 {
+	// Interval statistics disabled, so just return the current interval
 	if intervalNano < 0 {
 		return ts.curInterval
 	}
-	for ts.start + intervalNano*ts.curInterval < time.Now().UnixNano() {
-		ts.intervals = append(ts.intervals, IntervalStats{0, 0, []int64{}})
-		ts.curInterval++
+	for ts.start + intervalNano*(ts.curInterval+1) < time.Now().UnixNano() {
+                ts.curInterval++
+		ts.intervals = append(
+			ts.intervals,
+			IntervalStats{
+				loop,
+				strconv.FormatInt(ts.curInterval, 10),
+				mode,
+				0,
+				0,
+				intervalNano,
+				[]int64{}})
 	}
 	return ts.curInterval
 }
@@ -181,7 +313,7 @@ type Stats struct {
 	intervalNano int64
 	// Per-thread statistics
 	threadStats []ThreadStats
-	// a map of counters of how many threads have finished given interval of stats
+	// a map of per-interval thread completion counters
 	intervalCompletions sync.Map 
 	// a counter of how many threads have finished updating stats entirely
 	completions int32
@@ -191,15 +323,34 @@ func makeStats(loop int, mode string, threads int, intervalNano int64) Stats {
 	start := time.Now().UnixNano()
 	s := Stats{threads, loop, mode, start, 0, intervalNano, []ThreadStats{}, sync.Map{}, 0}
 	for i := 0; i < threads; i++ {
-		s.threadStats = append(s.threadStats, makeThreadStats(start, s.intervalNano))
+		s.threadStats = append(s.threadStats, makeThreadStats(start, s.loop, s.mode, s.intervalNano))
+		s.updateIntervals(i)
 	}
 	return s
 }
 
-func (stats *Stats) _getIntervalStats(i int64) IntervalStats {
+func (stats *Stats) makeOutputStats(i int64) (OutputStats, bool) {
+        // Check bounds first
+        if stats.intervalNano < 0 || i < 0 {
+                return OutputStats{}, false
+        }
+        // Not safe to log if not all writers have completed.
+        value, ok := stats.intervalCompletions.Load(i)
+        if !ok {
+                return OutputStats{}, false
+        }
+        cp, ok := value.(*int32)
+        if !ok {
+                return OutputStats{}, false
+        }
+        count := atomic.LoadInt32(cp)
+        if count < int32(stats.threads) {
+                return OutputStats{}, false
+        }
+
         bytes := int64(0)
         ops := int64(0)
-        slowdowns := int64(0);
+        slowdowns := int64(0)
 
         for t := 0; t < stats.threads; t++ {
                 bytes += stats.threadStats[t].intervals[i].bytes
@@ -213,10 +364,18 @@ func (stats *Stats) _getIntervalStats(i int64) IntervalStats {
                 c += copy(tmpLat[c:], stats.threadStats[t].intervals[i].latNano)
         }
         sort.Slice(tmpLat, func(i, j int) bool { return tmpLat[i] < tmpLat[j] })
-        return IntervalStats{bytes, slowdowns, tmpLat}
+        is := IntervalStats{stats.loop, strconv.FormatInt(i, 10), stats.mode, bytes, slowdowns, stats.intervalNano, tmpLat}
+	return is.makeOutputStats(), true
 }
 
-func (stats *Stats) _getTotalStats() IntervalStats {
+func (stats *Stats) makeTotalStats() (OutputStats, bool) {
+        // Not safe to log if not all writers have completed.
+        completions := atomic.LoadInt32(&stats.completions)
+        if (completions < int32(threads)) {
+                log.Printf("log, completions: %d", completions)
+                return OutputStats{}, false
+        }
+
         bytes := int64(0)
         ops := int64(0)
         slowdowns := int64(0);
@@ -237,84 +396,14 @@ func (stats *Stats) _getTotalStats() IntervalStats {
 	        }
 	}
         sort.Slice(tmpLat, func(i, j int) bool { return tmpLat[i] < tmpLat[j] })
-        return IntervalStats{bytes, slowdowns, tmpLat}
-}
-
-func (stats *Stats) logI(i int64) bool {
-	// Check bounds first
-	if stats.intervalNano < 0 || i < 0 {
-		return false;
-	}
-	// Not safe to log if not all writers have completed.
-	value, ok := stats.intervalCompletions.Load(i)
-	if !ok {
-		return false;
-	}
-	cp, ok := value.(*int32)
-	if !ok {
-		return false;
-	}
-	count := atomic.LoadInt32(cp)
-	if count < int32(stats.threads) {
-		return false;
-	}
-
-	return stats._log(strconv.FormatInt(i, 10), stats.intervalNano, stats._getIntervalStats(i)) 
-}
-
-func (stats *Stats) log() bool {
-	// Not safe to log if not all writers have completed.
-	completions := atomic.LoadInt32(&stats.completions)
-        if (completions < int32(stats.threads)) {
-		log.Printf("log, completions: %d", completions) 
-                return false;
-        }
-        return stats._log("ALL", stats.endNano - stats.startNano, stats._getTotalStats())
-}
-
-func (stats *Stats) _log(intervalName string, intervalNano int64, intervalStats IntervalStats) bool {
-        // Compute and log the stats
-	ops := len(intervalStats.latNano)
-        totalLat := int64(0);
-	minLat := float64(0);
-	maxLat := float64(0);
-	NinetyNineLat := float64(0);
-	avgLat := float64(0);
-	if ops > 0 {
-		minLat = float64(intervalStats.latNano[0]) / 1000000
-		maxLat = float64(intervalStats.latNano[ops - 1]) / 1000000
-		for i := range intervalStats.latNano {
-			totalLat += intervalStats.latNano[i]
-		}
-		avgLat = float64(totalLat) / float64(ops) / 1000000
-		NintyNineLatNano := intervalStats.latNano[int64(math.Round(0.99*float64(ops))) - 1]
-		NinetyNineLat = float64(NintyNineLatNano) / 1000000
-	}
-	seconds := float64(intervalNano) / 1000000000
-	mbps := float64(intervalStats.bytes) / seconds / bytefmt.MEGABYTE
-	iops := float64(ops) / seconds
-
-	log.Printf(
-		"Loop: %d, Int: %s, Dur(s): %.1f, Mode: %s, Ops: %d, MB/s: %.2f, IO/s: %.0f, Lat(ms): [ min: %.1f, avg: %.1f, 99%%: %.1f, max: %.1f ], Slowdowns: %d",
-		stats.loop,
-		intervalName,
-                seconds,
-		stats.mode,
-		ops,
-		mbps,
-		iops,
-		minLat,
-		avgLat,
-		NinetyNineLat,
-		maxLat,
-		intervalStats.slowdowns)
-	return true
+        is := IntervalStats{stats.loop, "TOTAL", stats.mode, bytes, slowdowns, stats.endNano - stats.startNano, tmpLat}
+	return is.makeOutputStats(), true
 }
 
 // Only safe to call from the calling thread
 func (stats *Stats) updateIntervals(thread_num int) int64 {
 	curInterval := stats.threadStats[thread_num].curInterval
-	newInterval := stats.threadStats[thread_num].updateIntervals(stats.intervalNano)
+	newInterval := stats.threadStats[thread_num].updateIntervals(stats.loop, stats.mode, stats.intervalNano)
 
 	// Finish has already been called
 	if curInterval < 0 {
@@ -332,7 +421,9 @@ func (stats *Stats) updateIntervals(thread_num int) int64 {
 
 		count := atomic.AddInt32(cp, 1)
 		if count == int32(stats.threads) {
-			stats.logI(i)
+			if is, ok := stats.makeOutputStats(i); ok {
+				is.log()
+			}
 		}
 	}
 	return newInterval
@@ -356,10 +447,10 @@ func (stats *Stats) addSlowDown(thread_num int) {
 }
 
 func (stats *Stats) finish(thread_num int) {
-	stats.threadStats[thread_num].updateIntervals(stats.intervalNano)
+	stats.updateIntervals(thread_num)
 	stats.threadStats[thread_num].finish()
 	count := atomic.AddInt32(&stats.completions, 1)
-	if count ==  int32(stats.threads) {
+	if count == int32(stats.threads) {
 		stats.endNano = time.Now().UnixNano()
 	}
 }
@@ -406,8 +497,8 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 			break
 		}
 	}
+        stats.finish(thread_num)
 	atomic.AddInt64(&running_threads, -1)
-	stats.finish(thread_num)
 }
 
 func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
@@ -454,8 +545,8 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
                 }
 
 	}
+        stats.finish(thread_num)
 	atomic.AddInt64(&running_threads, -1)
-	stats.finish(thread_num)
 }
 
 func runDelete(thread_num int, stats *Stats) {
@@ -499,8 +590,8 @@ func runDelete(thread_num int, stats *Stats) {
 			break
                 }
 	}
-	atomic.AddInt64(&running_threads, -1)
         stats.finish(thread_num)
+	atomic.AddInt64(&running_threads, -1)
 }
 
 func runBucketDelete(thread_num int, stats *Stats) {
@@ -526,8 +617,8 @@ func runBucketDelete(thread_num int, stats *Stats) {
                 } 
                 stats.addOp(thread_num, 0, end-start)
         }
-        atomic.AddInt64(&running_threads, -1)
         stats.finish(thread_num)
+        atomic.AddInt64(&running_threads, -1)
 }
 
 var cfg *aws.Config
@@ -555,8 +646,8 @@ func runBucketsInit(thread_num int, stats *Stats) {
 		}
                 stats.addOp(thread_num, 0, end-start)
 	}
+        stats.finish(thread_num)
         atomic.AddInt64(&running_threads, -1)
-	stats.finish(thread_num)
 }
 
 func runBucketsClear(thread_num int, stats *Stats) {
@@ -592,10 +683,9 @@ func runBucketsClear(thread_num int, stats *Stats) {
 	                n = len(out.Contents)
 	        }
         }
-        atomic.AddInt64(&running_threads, -1)
         stats.finish(thread_num)
+        atomic.AddInt64(&running_threads, -1)
 }
-
 
 func runWrapper(loop int, r rune) {
 	op_counter = -1 
@@ -655,14 +745,32 @@ func runWrapper(loop int, r rune) {
                 time.Sleep(time.Millisecond)
         }
 
-
         // If the user didn't set the object_count, we can set it here
         // to limit subsequent get/del tests to valid objects only.
 	if r == 'p' && object_count < 0 {
 		object_count = op_counter + 1
                 object_count_flag = true
         }
-        stats.log()
+
+	// Print Interval Output 
+	for i := int64(0); i >= 0;i++ {
+		if o, ok := stats.makeOutputStats(i); ok {
+			if csvWriter != nil {
+				o.csv(csvWriter)
+			}
+		} else {
+			break 
+		}
+	}
+
+	// Print Totals Output
+        if o, ok := stats.makeTotalStats(); ok {
+		o.log()
+		if csvWriter != nil {
+			o.csv(csvWriter)
+			csvWriter.Flush()
+		}
+	}
 }
 
 func init() {
@@ -675,6 +783,7 @@ func init() {
 	myflag.StringVar(&bucket_prefix, "bp", "hotsauce_bench", "Prefix for buckets")
 	myflag.StringVar(&region, "r", "us-east-1", "Region for testing")
         myflag.StringVar(&modes, "m", "cxipgdx", "Run modes in order.  See NOTES for more info")
+	myflag.StringVar(&output, "o", "", "Write CSV output to this file")
         myflag.Int64Var(&object_count, "n", -1, "Maximum number of objects <-1 for unlimited>")
         myflag.Int64Var(&bucket_count, "b", 1, "Number of buckets to distribute IOs across")
 	myflag.IntVar(&duration_secs, "d", 60, "Maximum test duration in seconds <-1 for unlimited>")
@@ -793,6 +902,18 @@ func main() {
 		buckets = append(buckets, fmt.Sprintf("%s%012d", bucket_prefix, i))
 	}
 
+	// Init CSV file
+	if output != "" {
+		file, err :=  os.OpenFile(output, os.O_CREATE|os.O_WRONLY, 0777)
+		defer file.Close()
+		if err != nil {
+			log.Fatal("Could not open CSV file for writing.")
+		} else {
+			csvWriter = csv.NewWriter(file)
+			o := OutputStats{}
+			o.csv_header(csvWriter)
+		}
+	}
 	// Loop running the tests
 	for loop := 0; loop < loops; loop++ {
 	        for _, r := range modes {
