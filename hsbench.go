@@ -12,6 +12,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/csv"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -36,7 +37,7 @@ import (
 )
 
 // Global variables
-var access_key, secret_key, url_host, bucket_prefix, object_prefix, region, modes, output, sizeArg string
+var access_key, secret_key, url_host, bucket_prefix, object_prefix, region, modes, output, json_output, sizeArg string
 var buckets []string
 var duration_secs, threads, loops int
 var object_data []byte
@@ -45,7 +46,6 @@ var running_threads, bucket_count, object_count, object_size, op_counter int64
 var object_count_flag bool
 var endtime time.Time
 var interval float64
-var csvWriter *csv.Writer
 
 // Our HTTP transport used for the roundtripper below
 var HTTPTransport http.RoundTripper = &http.Transport{
@@ -183,40 +183,40 @@ func (is *IntervalStats) makeOutputStats() OutputStats {
 }
 
 type OutputStats struct {
-        loop int
-        intervalName string
-        seconds float64
-        mode string
-        ops int
-        mbps float64
-        iops float64
-        minLat float64
-        avgLat float64
+        Loop int
+        IntervalName string
+        Seconds float64
+        Mode string
+        Ops int
+        Mbps float64
+        Iops float64
+        MinLat float64
+        AvgLat float64
         NinetyNineLat float64
-	maxLat float64
-        slowdowns int64
+	MaxLat float64
+        Slowdowns int64
 }
 
 func (o *OutputStats) log() {
 	log.Printf(
                 "Loop: %d, Int: %s, Dur(s): %.1f, Mode: %s, Ops: %d, MB/s: %.2f, IO/s: %.0f, Lat(ms): [ min: %.1f, avg: %.1f, 99%%: %.1f, max: %.1f ], Slowdowns: %d",
-                o.loop,
-                o.intervalName,
-                o.seconds,
-                o.mode,
-                o.ops,
-                o.mbps,
-                o.iops,
-                o.minLat,
-                o.avgLat,
+                o.Loop,
+                o.IntervalName,
+                o.Seconds,
+                o.Mode,
+                o.Ops,
+                o.Mbps,
+                o.Iops,
+                o.MinLat,
+                o.AvgLat,
                 o.NinetyNineLat,
-                o.maxLat,
-                o.slowdowns)
+                o.MaxLat,
+                o.Slowdowns)
 }
 
 func (o *OutputStats) csv_header(w *csv.Writer) {
 	if w == nil {
-		log.Fatal("OutputStats Passed nil csv writer")
+		log.Fatal("OutputStats passed nil CSV writer")
 	}
 
 	s := []string{
@@ -233,7 +233,7 @@ func (o *OutputStats) csv_header(w *csv.Writer) {
 		"Slowdowns"}
 
 	if err := w.Write(s); err != nil {
-		log.Fatal("Error writing to csv: ", err)
+		log.Fatal("Error writing to CSV writer: ", err)
 	}
 }
 
@@ -243,22 +243,37 @@ func (o *OutputStats) csv(w *csv.Writer) {
 	}
 
 	s := []string {
-		strconv.Itoa(o.loop),
-		o.intervalName,
-		strconv.FormatFloat(o.seconds, 'f', 2, 64),
-		o.mode,
-		strconv.Itoa(o.ops),
-		strconv.FormatFloat(o.mbps, 'f', 2, 64),
-		strconv.FormatFloat(o.iops, 'f', 2, 64),
-		strconv.FormatFloat(o.minLat, 'f', 2, 64),
-		strconv.FormatFloat(o.avgLat, 'f', 2, 64),
+		strconv.Itoa(o.Loop),
+		o.IntervalName,
+		strconv.FormatFloat(o.Seconds, 'f', 2, 64),
+		o.Mode,
+		strconv.Itoa(o.Ops),
+		strconv.FormatFloat(o.Mbps, 'f', 2, 64),
+		strconv.FormatFloat(o.Iops, 'f', 2, 64),
+		strconv.FormatFloat(o.MinLat, 'f', 2, 64),
+		strconv.FormatFloat(o.AvgLat, 'f', 2, 64),
 		strconv.FormatFloat(o.NinetyNineLat, 'f', 2, 64),
-		strconv.FormatFloat(o.maxLat, 'f', 2, 64),
-		strconv.FormatInt(o.slowdowns, 10)}
+		strconv.FormatFloat(o.MaxLat, 'f', 2, 64),
+		strconv.FormatInt(o.Slowdowns, 10)}
 
 	if err := w.Write(s); err != nil {
-		log.Fatal("Error writing to csv: ", err)
+		log.Fatal("Error writing to CSV writer: ",err)
 	}
+}
+
+func (o *OutputStats) json(jfile *os.File) {
+	if jfile == nil {
+		log.Fatal("OutputStats passed nil JSON file")
+	}
+	jdata, err := json.Marshal(o)
+	if err != nil {
+		log.Fatal("Error marshaling JSON: ", err)
+	}
+	log.Println(string(jdata))
+	_, err = jfile.WriteString(string(jdata) + "\n")
+	if err != nil {
+		log.Fatal("Error writing to JSON file: ", err)
+	}	
 }
 
 type ThreadStats struct {
@@ -687,7 +702,7 @@ func runBucketsClear(thread_num int, stats *Stats) {
         atomic.AddInt64(&running_threads, -1)
 }
 
-func runWrapper(loop int, r rune) {
+func runWrapper(loop int, r rune) []OutputStats {
 	op_counter = -1 
         running_threads = int64(threads)
         intervalNano := int64(interval*1000000000)
@@ -752,25 +767,20 @@ func runWrapper(loop int, r rune) {
                 object_count_flag = true
         }
 
-	// Print Interval Output 
-	for i := int64(0); i >= 0;i++ {
+	// Create the Output Stats
+	os := make([]OutputStats, 0)
+	for i := int64(0); i >= 0; i++ {
 		if o, ok := stats.makeOutputStats(i); ok {
-			if csvWriter != nil {
-				o.csv(csvWriter)
-			}
+                        os = append(os, o)
 		} else {
 			break 
 		}
 	}
-
-	// Print Totals Output
         if o, ok := stats.makeTotalStats(); ok {
 		o.log()
-		if csvWriter != nil {
-			o.csv(csvWriter)
-			csvWriter.Flush()
-		}
+		os = append(os, o)
 	}
+	return os
 }
 
 func init() {
@@ -784,6 +794,7 @@ func init() {
 	myflag.StringVar(&region, "r", "us-east-1", "Region for testing")
         myflag.StringVar(&modes, "m", "cxipgdx", "Run modes in order.  See NOTES for more info")
 	myflag.StringVar(&output, "o", "", "Write CSV output to this file")
+	myflag.StringVar(&json_output, "j", "", "Write JSON output to this file")
         myflag.Int64Var(&object_count, "n", -1, "Maximum number of objects <-1 for unlimited>")
         myflag.Int64Var(&bucket_count, "b", 1, "Number of buckets to distribute IOs across")
 	myflag.IntVar(&duration_secs, "d", 60, "Maximum test duration in seconds <-1 for unlimited>")
@@ -886,6 +897,8 @@ func main() {
 	log.Printf("bucket_prefix=%s", bucket_prefix)
 	log.Printf("region=%s", region)
 	log.Printf("modes=%s", modes)
+	log.Printf("output=%s", output)
+	log.Printf("json_output=%s", json_output)
 	log.Printf("object_count=%d", object_count)
 	log.Printf("bucket_count=%d", bucket_count)
 	log.Printf("duration=%d", duration_secs)
@@ -902,22 +915,47 @@ func main() {
 		buckets = append(buckets, fmt.Sprintf("%s%012d", bucket_prefix, i))
 	}
 
-	// Init CSV file
+        // Loop running the tests
+        oStats := make([]OutputStats, 0)
+        for loop := 0; loop < loops; loop++ {
+                for _, r := range modes {
+                        oStats = append(oStats, runWrapper(loop, r)...)
+                }
+        }
+
+	// Write CSV Output
 	if output != "" {
 		file, err :=  os.OpenFile(output, os.O_CREATE|os.O_WRONLY, 0777)
 		defer file.Close()
 		if err != nil {
 			log.Fatal("Could not open CSV file for writing.")
 		} else {
-			csvWriter = csv.NewWriter(file)
-			o := OutputStats{}
-			o.csv_header(csvWriter)
+			csvWriter := csv.NewWriter(file)
+		        for i, o := range oStats {
+				if i == 0 {
+					o.csv_header(csvWriter)
+				}
+                		o.csv(csvWriter)
+        		}
+        		csvWriter.Flush()
 		}
 	}
-	// Loop running the tests
-	for loop := 0; loop < loops; loop++ {
-	        for _, r := range modes {
-			runWrapper(loop, r)
-		}
+
+	// Write JSON output
+	if json_output != "" {
+		file, err := os.OpenFile(json_output, os.O_CREATE|os.O_WRONLY, 0777)
+                defer file.Close()
+                if err != nil {
+                        log.Fatal("Could not open JSON file for writing.")
+                }
+		data, err := json.Marshal(oStats)
+	        if err != nil {
+	                log.Fatal("Error marshaling JSON: ", err)
+	        }
+	        _, err = file.Write(data)
+	        if err != nil {
+	                log.Fatal("Error writing to JSON file: ", err)
+	        }
+	        file.Sync()
 	}
 }
