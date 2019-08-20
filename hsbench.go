@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"io"
-	"io/ioutil"
 	"log"
 	"math"
 	"math/rand"
@@ -548,12 +546,9 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 			stats.addSlowDown(thread_num)
 			log.Printf("download err", err)
 		} else {
+			resp.Body.Close()
 			// Update the stats
 			stats.addOp(thread_num, object_size, end-start)
-		}
-
-		if err == nil {
-			_, err = io.Copy(ioutil.Discard, resp.Body)
 		}
 		if errcnt > 2 {
 			break
