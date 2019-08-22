@@ -40,7 +40,7 @@ var buckets []string
 var duration_secs, threads, loops int
 var object_data []byte
 var object_data_md5 string
-var running_threads, bucket_count, object_count, object_size, op_counter int64
+var max_keys, running_threads, bucket_count, object_count, object_size, op_counter int64
 var object_count_flag bool
 var endtime time.Time
 var interval float64
@@ -631,6 +631,38 @@ func runBucketDelete(thread_num int, stats *Stats) {
 	atomic.AddInt64(&running_threads, -1)
 }
 
+func runBucketList(thread_num int, stats *Stats) {
+        svc := s3.New(session.New(), cfg)
+
+        for {
+		bucket_num := atomic.AddInt64(&op_counter, 1)
+		if bucket_num >= bucket_count {
+			atomic.AddInt64(&op_counter, -1)
+			break
+		}
+
+		start := time.Now().UnixNano()
+		err := svc.ListObjectsPages(
+			&s3.ListObjectsInput{
+				Bucket: &buckets[bucket_num],
+				MaxKeys: &max_keys,
+			},
+			func (p *s3.ListObjectsOutput, last bool) bool {
+		                end := time.Now().UnixNano()
+              			stats.updateIntervals(thread_num)
+                       		stats.addOp(thread_num, 0, end-start)
+				start = time.Now().UnixNano()
+				return true 
+			})
+
+                if err != nil {
+                        break
+                }
+        }
+        stats.finish(thread_num)
+        atomic.AddInt64(&running_threads, -1)
+}
+
 var cfg *aws.Config
 
 func runBucketsInit(thread_num int, stats *Stats) {
@@ -736,6 +768,12 @@ func runWrapper(loop int, r rune) []OutputStats {
 		for n := 0; n < threads; n++ {
 			go runUpload(n, endtime, &stats)
 		}
+	case 'l':
+		log.Printf("Running Loop %d BUCKET LIST TEST", loop)
+                stats = makeStats(loop, "LIST", threads, intervalNano)
+                for n := 0; n < threads; n++ {
+                        go runBucketList(n, &stats)
+                }
 	case 'g':
 		log.Printf("Running Loop %d OBJECT GET TEST", loop)
 		stats = makeStats(loop, "GET", threads, intervalNano)
@@ -787,9 +825,10 @@ func init() {
 	myflag.StringVar(&object_prefix, "op", "", "Prefix for objects")
 	myflag.StringVar(&bucket_prefix, "bp", "hotsauce_bench", "Prefix for buckets")
 	myflag.StringVar(&region, "r", "us-east-1", "Region for testing")
-	myflag.StringVar(&modes, "m", "cxipgdx", "Run modes in order.  See NOTES for more info")
+	myflag.StringVar(&modes, "m", "cxiplgdcx", "Run modes in order.  See NOTES for more info")
 	myflag.StringVar(&output, "o", "", "Write CSV output to this file")
 	myflag.StringVar(&json_output, "j", "", "Write JSON output to this file")
+        myflag.Int64Var(&max_keys, "mk", 1000, "Maximum number of keys to retreive at once for bucket listings")
 	myflag.Int64Var(&object_count, "n", -1, "Maximum number of objects <-1 for unlimited>")
 	myflag.Int64Var(&bucket_count, "b", 1, "Number of buckets to distribute IOs across")
 	myflag.IntVar(&duration_secs, "d", 60, "Maximum test duration in seconds <-1 for unlimited>")
@@ -806,6 +845,7 @@ NOTES:
     x: delete buckets
     i: initialize buckets 
     p: put objects in buckets
+    l: list objects in buckets
     g: get objects from buckets
     d: delete objects from buckets 
 
@@ -813,6 +853,11 @@ NOTES:
     initialize the buckets, put the objects, reput the objects, get the
     objects, and then delete the objects.  The repeat flag will repeat this
     whole process the specified number of times.
+
+  - When performing bucket listings, many S3 storage systems limit the
+    maximum number of keys returned to 1000 even if MaxKeys is set higher.
+    hsbench will attempt to set MaxKeys to whatever value is passed via the 
+    "mk" flag, but it's likely that any values above 1000 will be ignored.
 `
 	myflag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "\nUSAGE: %s [OPTIONS]\n\n", os.Args[0])
@@ -844,6 +889,7 @@ NOTES:
 			r != 'c' &&
 			r != 'p' &&
 			r != 'g' &&
+			r != 'l' &&
 			r != 'd' &&
 			r != 'x' {
 			s := fmt.Sprintf("Invalid mode '%s' passed to -m", string(r))
@@ -893,6 +939,7 @@ func main() {
 	log.Printf("modes=%s", modes)
 	log.Printf("output=%s", output)
 	log.Printf("json_output=%s", json_output)
+	log.Printf("max_keys=%d", max_keys)
 	log.Printf("object_count=%d", object_count)
 	log.Printf("bucket_count=%d", bucket_count)
 	log.Printf("duration=%d", duration_secs)

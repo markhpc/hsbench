@@ -68,7 +68,9 @@ OPTIONS:
   -l int
     	Number of times to repeat test (default 1)
   -m string
-    	Run modes in order.  See NOTES for more info (default "cxipgdx")
+    	Run modes in order.  See NOTES for more info (default "cxiplgdcx")
+  -mk int
+    	Maximum number of keys to retreive at once for bucket listings (default 1000)
   -n int
     	Maximum number of objects <-1 for unlimited> (default -1)
   -o string
@@ -94,6 +96,7 @@ NOTES:
     x: delete buckets
     i: initialize buckets 
     p: put objects in buckets
+    l: list objects in buckets
     g: get objects from buckets
     d: delete objects from buckets 
 
@@ -101,6 +104,11 @@ NOTES:
     initialize the buckets, put the objects, reput the objects, get the
     objects, and then delete the objects.  The repeat flag will repeat this
     whole process the specified number of times.
+
+  - When performing bucket listings, many S3 storage systems limit the
+    maximum number of keys returned to 1000 even if MaxKeys is set higher.
+    hsbench will attempt to set MaxKeys to whatever value is passed via the 
+    "mk" flag, but it's likely that any values above 1000 will be ignored.
 ```
 
 ## Example Benchmark
