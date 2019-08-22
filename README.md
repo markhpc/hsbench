@@ -1,4 +1,4 @@
-# Hotsauce S3 Benchmark Version 0.1
+# Hotsauce S3 Benchmark
 
 ## Introduction
 
