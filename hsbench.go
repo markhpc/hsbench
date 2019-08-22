@@ -632,9 +632,9 @@ func runBucketDelete(thread_num int, stats *Stats) {
 }
 
 func runBucketList(thread_num int, stats *Stats) {
-        svc := s3.New(session.New(), cfg)
+	svc := s3.New(session.New(), cfg)
 
-        for {
+	for {
 		bucket_num := atomic.AddInt64(&op_counter, 1)
 		if bucket_num >= bucket_count {
 			atomic.AddInt64(&op_counter, -1)
@@ -644,23 +644,23 @@ func runBucketList(thread_num int, stats *Stats) {
 		start := time.Now().UnixNano()
 		err := svc.ListObjectsPages(
 			&s3.ListObjectsInput{
-				Bucket: &buckets[bucket_num],
+				Bucket:  &buckets[bucket_num],
 				MaxKeys: &max_keys,
 			},
-			func (p *s3.ListObjectsOutput, last bool) bool {
-		                end := time.Now().UnixNano()
-              			stats.updateIntervals(thread_num)
-                       		stats.addOp(thread_num, 0, end-start)
+			func(p *s3.ListObjectsOutput, last bool) bool {
+				end := time.Now().UnixNano()
+				stats.updateIntervals(thread_num)
+				stats.addOp(thread_num, 0, end-start)
 				start = time.Now().UnixNano()
-				return true 
+				return true
 			})
 
-                if err != nil {
-                        break
-                }
-        }
-        stats.finish(thread_num)
-        atomic.AddInt64(&running_threads, -1)
+		if err != nil {
+			break
+		}
+	}
+	stats.finish(thread_num)
+	atomic.AddInt64(&running_threads, -1)
 }
 
 var cfg *aws.Config
@@ -770,10 +770,10 @@ func runWrapper(loop int, r rune) []OutputStats {
 		}
 	case 'l':
 		log.Printf("Running Loop %d BUCKET LIST TEST", loop)
-                stats = makeStats(loop, "LIST", threads, intervalNano)
-                for n := 0; n < threads; n++ {
-                        go runBucketList(n, &stats)
-                }
+		stats = makeStats(loop, "LIST", threads, intervalNano)
+		for n := 0; n < threads; n++ {
+			go runBucketList(n, &stats)
+		}
 	case 'g':
 		log.Printf("Running Loop %d OBJECT GET TEST", loop)
 		stats = makeStats(loop, "GET", threads, intervalNano)
@@ -828,7 +828,7 @@ func init() {
 	myflag.StringVar(&modes, "m", "cxiplgdcx", "Run modes in order.  See NOTES for more info")
 	myflag.StringVar(&output, "o", "", "Write CSV output to this file")
 	myflag.StringVar(&json_output, "j", "", "Write JSON output to this file")
-        myflag.Int64Var(&max_keys, "mk", 1000, "Maximum number of keys to retreive at once for bucket listings")
+	myflag.Int64Var(&max_keys, "mk", 1000, "Maximum number of keys to retreive at once for bucket listings")
 	myflag.Int64Var(&object_count, "n", -1, "Maximum number of objects <-1 for unlimited>")
 	myflag.Int64Var(&bucket_count, "b", 1, "Number of buckets to distribute IOs across")
 	myflag.IntVar(&duration_secs, "d", 60, "Maximum test duration in seconds <-1 for unlimited>")
