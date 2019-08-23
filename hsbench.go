@@ -823,7 +823,7 @@ func init() {
 	myflag.StringVar(&secret_key, "s", os.Getenv("AWS_SECRET_ACCESS_KEY"), "Secret key")
 	myflag.StringVar(&url_host, "u", os.Getenv("AWS_HOST"), "URL for host with method prefix")
 	myflag.StringVar(&object_prefix, "op", "", "Prefix for objects")
-	myflag.StringVar(&bucket_prefix, "bp", "hotsauce_bench", "Prefix for buckets")
+	myflag.StringVar(&bucket_prefix, "bp", "hotsauce-bench", "Prefix for buckets")
 	myflag.StringVar(&region, "r", "us-east-1", "Region for testing")
 	myflag.StringVar(&modes, "m", "cxiplgdcx", "Run modes in order.  See NOTES for more info")
 	myflag.StringVar(&output, "o", "", "Write CSV output to this file")
