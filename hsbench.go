@@ -881,7 +881,7 @@ NOTES:
 		log.Fatal("Missing argument -s for secret key.")
 	}
 	if url_host == "" {
-		log.Fatal("Missing argument -s for host endpoint.")
+		log.Fatal("Missing argument -u for host endpoint.")
 	}
 	invalid_mode := false
 	for _, r := range modes {
