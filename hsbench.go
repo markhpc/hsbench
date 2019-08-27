@@ -54,10 +54,10 @@ var HTTPTransport http.RoundTripper = &http.Transport{
 	}).Dial,
 	TLSHandshakeTimeout:   10 * time.Second,
 	ExpectContinueTimeout: 0,
-	// Allow an unlimited number of idle connections
-	MaxIdleConnsPerHost: 4096,
-	MaxIdleConns:        0,
-	// But limit their idle time
+	// Set the number of idle connections to 2X the number of threads 
+	MaxIdleConnsPerHost: 2*threads,
+	MaxIdleConns:        2*threads,
+	// But limit their idle time to 1 minute
 	IdleConnTimeout: time.Minute,
 	// Ignore TLS errors
 	TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
