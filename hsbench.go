@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"io"
 	"log"
 	"math"
 	"math/rand"
@@ -514,6 +515,24 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 	atomic.AddInt64(&running_threads, -1)
 }
 
+func readBody(r io.Reader) (int64, error) {
+	var bytesRead int64 = 0
+	buf := make([]byte, 8192)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			bytesRead += int64(n)
+		}
+		if err != nil {
+			if err == io.EOF {
+				return bytesRead, nil
+			} else {
+				return bytesRead, err
+			}
+		}
+	}
+}
+
 func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 	errcnt := 0
 	svc := s3.New(session.New(), cfg)
@@ -540,15 +559,21 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 		err := req.Send()
 		end := time.Now().UnixNano()
 		stats.updateIntervals(thread_num)
-
 		if err != nil {
 			errcnt++
 			stats.addSlowDown(thread_num)
 			log.Printf("download err", err)
 		} else {
-			resp.Body.Close()
+			var bytesRead int64 = 0
+			defer resp.Body.Close()
+			bytesRead, err := readBody(resp.Body)
 			// Update the stats
-			stats.addOp(thread_num, object_size, end-start)
+			stats.addOp(thread_num, bytesRead, end-start)
+			if err != nil {
+				errcnt++
+				stats.addSlowDown(thread_num)
+				log.Printf("download err", err)
+			}
 		}
 		if errcnt > 2 {
 			break
