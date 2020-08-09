@@ -41,7 +41,7 @@ var buckets []string
 var duration_secs, threads, loops int
 var object_data []byte
 var object_data_md5 string
-var max_keys, running_threads, bucket_count, object_count, object_size, op_counter int64
+var max_keys, running_threads, bucket_count, first_object, object_count, object_size, op_counter int64
 var object_count_flag bool
 var endtime time.Time
 var interval float64
@@ -761,7 +761,7 @@ func runBucketsClear(thread_num int, stats *Stats) {
 }
 
 func runWrapper(loop int, r rune) []OutputStats {
-	op_counter = -1
+	op_counter = first_object-1
 	running_threads = int64(threads)
 	intervalNano := int64(interval * 1000000000)
 	endtime = time.Now().Add(time.Second * time.Duration(duration_secs))
@@ -861,6 +861,7 @@ func init() {
 	myflag.StringVar(&json_output, "j", "", "Write JSON output to this file")
 	myflag.Int64Var(&max_keys, "mk", 1000, "Maximum number of keys to retreive at once for bucket listings")
 	myflag.Int64Var(&object_count, "n", -1, "Maximum number of objects <-1 for unlimited>")
+	myflag.Int64Var(&first_object, "f", 0, "Object number to start with")
 	myflag.Int64Var(&bucket_count, "b", 1, "Number of buckets to distribute IOs across")
 	myflag.IntVar(&duration_secs, "d", 60, "Maximum test duration in seconds <-1 for unlimited>")
 	myflag.IntVar(&threads, "t", 1, "Number of threads to run")
