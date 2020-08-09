@@ -517,7 +517,7 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 
 func readBody(r io.Reader) (int64, error) {
 	var bytesRead int64 = 0
-	buf := make([]byte, 8192)
+	buf := make([]byte, 65536)
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
@@ -541,10 +541,16 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 			break
 		}
 
-		objnum := atomic.AddInt64(&op_counter, 1)
-		if object_count > -1 && objnum >= object_count {
-			atomic.AddInt64(&op_counter, -1)
-			break
+		var objnum int64
+		if object_count > -1 {
+			// Run random download if the number of objects is known
+			objnum = rand.Int63() % object_count
+		} else {
+			objnum = atomic.AddInt64(&op_counter, 1)
+			if object_count > -1 && objnum >= object_count {
+				atomic.AddInt64(&op_counter, -1)
+				break
+			}
 		}
 
 		bucket_num := objnum % int64(bucket_count)
@@ -871,7 +877,7 @@ NOTES:
     i: initialize buckets 
     p: put objects in buckets
     l: list objects in buckets
-    g: get objects from buckets
+    g: get objects from buckets (randomly when object count is known, sequentially otherwise)
     d: delete objects from buckets 
 
     These modes are processed in-order and can be repeated, ie "ippgd" will
