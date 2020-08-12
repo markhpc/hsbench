@@ -36,7 +36,7 @@ import (
 )
 
 // Global variables
-var access_key, secret_key, url_host, bucket_prefix, object_prefix, region, modes, output, json_output, sizeArg string
+var access_key, secret_key, url_host, bucket_prefix, bucket_list, object_prefix, region, modes, output, json_output, sizeArg string
 var buckets []string
 var duration_secs, threads, loops int
 var object_data []byte
@@ -876,6 +876,7 @@ func init() {
 	myflag.StringVar(&url_host, "u", os.Getenv("AWS_HOST"), "URL for host with method prefix")
 	myflag.StringVar(&object_prefix, "op", "", "Prefix for objects")
 	myflag.StringVar(&bucket_prefix, "bp", "hotsauce-bench", "Prefix for buckets")
+	myflag.StringVar(&bucket_list, "bl", "", "Use space-separated list of buckets for testing, not <prefix>000000000000")
 	myflag.StringVar(&region, "r", "us-east-1", "Region for testing")
 	myflag.StringVar(&modes, "m", "cxiplgdcx", "Run modes in order.  See NOTES for more info")
 	myflag.StringVar(&output, "o", "", "Write CSV output to this file")
@@ -987,13 +988,18 @@ func main() {
 	log.Printf("Parameters:")
 	log.Printf("url=%s", url_host)
 	log.Printf("object_prefix=%s", object_prefix)
-	log.Printf("bucket_prefix=%s", bucket_prefix)
+	if bucket_list != "" {
+		log.Printf("bucket_list=%s", bucket_list)
+	} else {
+		log.Printf("bucket_prefix=%s", bucket_prefix)
+	}
 	log.Printf("region=%s", region)
 	log.Printf("modes=%s", modes)
 	log.Printf("output=%s", output)
 	log.Printf("json_output=%s", json_output)
 	log.Printf("max_keys=%d", max_keys)
 	log.Printf("object_count=%d", object_count)
+	log.Printf("first_object=%d", first_object)
 	log.Printf("bucket_count=%d", bucket_count)
 	log.Printf("duration=%d", duration_secs)
 	log.Printf("threads=%d", threads)
@@ -1005,8 +1011,12 @@ func main() {
 	initData()
 
 	// Setup the slice of buckets
-	for i := int64(0); i < bucket_count; i++ {
-		buckets = append(buckets, fmt.Sprintf("%s%012d", bucket_prefix, i))
+	if bucket_list == "" {
+		for i := int64(0); i < bucket_count; i++ {
+			buckets = append(buckets, fmt.Sprintf("%s%012d", bucket_prefix, i))
+		}
+	} else {
+		buckets = strings.Split(bucket_list, " ")
 	}
 
 	// Loop running the tests
