@@ -665,29 +665,32 @@ func runBucketDelete(thread_num int, stats *Stats) {
 func runBucketList(thread_num int, stats *Stats) {
 	svc := s3.New(session.New(), cfg)
 
+	marker := ""
+	bucket_num := rand.Int63() % bucket_count
 	for {
-		bucket_num := atomic.AddInt64(&op_counter, 1)
-		if bucket_num >= bucket_count {
-			atomic.AddInt64(&op_counter, -1)
+		if duration_secs > -1 && time.Now().After(endtime) {
 			break
 		}
 
 		start := time.Now().UnixNano()
-		err := svc.ListObjectsPages(
-			&s3.ListObjectsInput{
-				Bucket:  &buckets[bucket_num],
-				MaxKeys: &max_keys,
-			},
-			func(p *s3.ListObjectsOutput, last bool) bool {
-				end := time.Now().UnixNano()
-				stats.updateIntervals(thread_num)
-				stats.addOp(thread_num, 0, end-start)
-				start = time.Now().UnixNano()
-				return true
-			})
+		p, err := svc.ListObjects(&s3.ListObjectsInput{
+			Bucket: &buckets[bucket_num],
+			Marker: &marker,
+			MaxKeys: &max_keys,
+		})
+		end := time.Now().UnixNano()
 
 		if err != nil {
 			break
+		}
+		stats.addOp(thread_num, 0, end-start)
+		stats.updateIntervals(thread_num)
+
+		if *p.IsTruncated {
+			marker = *p.NextMarker
+		} else {
+			marker = ""
+			bucket_num = rand.Int63() % bucket_count
 		}
 	}
 	stats.finish(thread_num)
