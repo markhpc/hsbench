@@ -6,7 +6,6 @@ package main
 
 import (
 	"bytes"
-	"code.cloudfoundry.org/bytefmt"
 	"crypto/hmac"
 	"crypto/md5"
 	"crypto/sha1"
@@ -16,10 +15,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"io"
 	"log"
 	"math"
@@ -33,6 +28,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"code.cloudfoundry.org/bytefmt"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 // Global variables
@@ -55,9 +56,9 @@ var HTTPTransport http.RoundTripper = &http.Transport{
 	}).Dial,
 	TLSHandshakeTimeout:   10 * time.Second,
 	ExpectContinueTimeout: 0,
-	// Set the number of idle connections to 2X the number of threads 
-	MaxIdleConnsPerHost: 2*threads,
-	MaxIdleConns:        2*threads,
+	// Set the number of idle connections to 2X the number of threads
+	MaxIdleConnsPerHost: 2 * threads,
+	MaxIdleConns:        2 * threads,
 	// But limit their idle time to 1 minute
 	IdleConnTimeout: time.Minute,
 	// Ignore TLS errors
@@ -677,8 +678,8 @@ func runBucketList(thread_num int, stats *Stats) {
 
 		start := time.Now().UnixNano()
 		p, err := svc.ListObjects(&s3.ListObjectsInput{
-			Bucket: &buckets[bucket_num],
-			Marker: &marker,
+			Bucket:  &buckets[bucket_num],
+			Marker:  &marker,
 			MaxKeys: &max_keys,
 		})
 		end := time.Now().UnixNano()
@@ -735,23 +736,23 @@ func runBucketsInit(thread_num int, stats *Stats) {
 
 type pagedObject struct {
 	bucket_num int64
-	key string
-	size int64
+	key        string
+	size       int64
 }
 
 func runPagedList(wg *sync.WaitGroup, bucket_num int64, list chan<- pagedObject) {
 	svc := s3.New(session.New(), cfg)
 	svc.ListObjectsPages(
 		&s3.ListObjectsInput{
-			Bucket: &buckets[bucket_num],
+			Bucket:  &buckets[bucket_num],
 			MaxKeys: &max_keys,
 		},
 		func(page *s3.ListObjectsOutput, last bool) bool {
 			for _, v := range page.Contents {
 				list <- pagedObject{
 					bucket_num: bucket_num,
-					key: *v.Key,
-					size: *v.Size,
+					key:        *v.Key,
+					size:       *v.Size,
 				}
 			}
 			return true
@@ -767,7 +768,7 @@ func runBucketsClear(list <-chan pagedObject, thread_num int, stats *Stats) {
 		start := time.Now().UnixNano()
 		_, err := svc.DeleteObject(&s3.DeleteObjectInput{
 			Bucket: &buckets[v.bucket_num],
-			Key: &v.key,
+			Key:    &v.key,
 		})
 		end := time.Now().UnixNano()
 		stats.updateIntervals(thread_num)
@@ -781,7 +782,7 @@ func runBucketsClear(list <-chan pagedObject, thread_num int, stats *Stats) {
 }
 
 func runWrapper(loop int, r rune) []OutputStats {
-	op_counter = first_object-1
+	op_counter = first_object - 1
 	running_threads = int64(threads)
 	intervalNano := int64(interval * 1000000000)
 	endtime = time.Now().Add(time.Second * time.Duration(duration_secs))
