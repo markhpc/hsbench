@@ -20,6 +20,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"io"
+	"io/ioutil"
 	"log"
 	"math"
 	"math/rand"
@@ -54,9 +56,9 @@ var HTTPTransport http.RoundTripper = &http.Transport{
 	}).Dial,
 	TLSHandshakeTimeout:   10 * time.Second,
 	ExpectContinueTimeout: 0,
-	// Set the number of idle connections to 2X the number of threads 
-	MaxIdleConnsPerHost: 2*threads,
-	MaxIdleConns:        2*threads,
+	// Set the number of idle connections to 2X the number of threads
+	MaxIdleConnsPerHost: 2 * threads,
+	MaxIdleConns:        2 * threads,
 	// But limit their idle time to 1 minute
 	IdleConnTimeout: time.Minute,
 	// Ignore TLS errors
@@ -546,6 +548,7 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 			stats.addSlowDown(thread_num)
 			log.Printf("download err", err)
 		} else {
+			io.Copy(ioutil.Discard, resp.Body)
 			resp.Body.Close()
 			// Update the stats
 			stats.addOp(thread_num, object_size, end-start)
