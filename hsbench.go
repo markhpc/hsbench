@@ -666,6 +666,55 @@ func runBucketList(thread_num int, stats *Stats) {
 	atomic.AddInt64(&running_threads, -1)
 }
 
+func runUnorderedList(thread_num int, stats *Stats) {
+	svc := s3.New(session.New(), cfg)
+
+	for { /* buckets */
+		bucket_num := atomic.AddInt64(&op_counter, 1)
+		if bucket_num >= bucket_count {
+			atomic.AddInt64(&op_counter, -1)
+			break
+		}
+
+		var next_marker string
+
+		start := time.Now().UnixNano()
+
+		for { /* pages */
+			input := &s3.ListObjectsInput{
+				Bucket:  &buckets[bucket_num],
+				MaxKeys: &max_keys,
+				Marker: &next_marker,
+			}
+			req, out := svc.ListObjectsRequest(input)
+			// need to add 'allow-unordered=True' to params
+			// n.b., eq marker&max-keys=1000
+			req.HTTPRequest.URL.RawQuery =
+				req.HTTPRequest.URL.RawQuery +
+				"&allow-unordered=True"
+
+			err := req.Send()
+			if err != nil {
+				log.Printf("unordered list err", err, "out",
+					out.String())
+				break
+			}
+
+			/* XXX should this really be every page? */
+			end := time.Now().UnixNano()
+			stats.updateIntervals(thread_num)
+			stats.addOp(thread_num, 0, end-start)
+			start = time.Now().UnixNano()
+
+			if (next_marker == "") {
+				break;
+			}
+		} /* pages */
+	} /* buckets */
+	stats.finish(thread_num)
+	atomic.AddInt64(&running_threads, -1)
+}
+
 var cfg *aws.Config
 
 func runBucketsInit(thread_num int, stats *Stats) {
@@ -777,6 +826,12 @@ func runWrapper(loop int, r rune) []OutputStats {
 		for n := 0; n < threads; n++ {
 			go runBucketList(n, &stats)
 		}
+	case 'u':
+		log.Printf("Running Loop %d BUCKET UNORDERED LIST TEST", loop)
+		stats = makeStats(loop, "UNORDERED LIST", threads, intervalNano)
+		for n := 0; n < threads; n++ {
+			go runUnorderedList(n, &stats)
+		}
 	case 'g':
 		log.Printf("Running Loop %d OBJECT GET TEST", loop)
 		stats = makeStats(loop, "GET", threads, intervalNano)
@@ -849,6 +904,7 @@ NOTES:
     i: initialize buckets 
     p: put objects in buckets
     l: list objects in buckets
+    u: list objects unordered (RGW extension)
     g: get objects from buckets
     d: delete objects from buckets 
 
@@ -893,6 +949,7 @@ NOTES:
 			r != 'p' &&
 			r != 'g' &&
 			r != 'l' &&
+			r != 'u' &&
 			r != 'd' &&
 			r != 'x' {
 			s := fmt.Sprintf("Invalid mode '%s' passed to -m", string(r))
