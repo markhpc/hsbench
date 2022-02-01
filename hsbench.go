@@ -571,8 +571,8 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 			log.Printf("download err", err)
 		} else {
 			var bytesRead int64 = 0
-			defer resp.Body.Close()
 			bytesRead, err := readBody(resp.Body)
+			resp.Body.Close()
 			// Update the stats
 			stats.addOp(thread_num, bytesRead, end-start)
 			if err != nil {
@@ -1030,7 +1030,6 @@ func main() {
 	// Write CSV Output
 	if output != "" {
 		file, err := os.OpenFile(output, os.O_CREATE|os.O_WRONLY, 0777)
-		defer file.Close()
 		if err != nil {
 			log.Fatal("Could not open CSV file for writing.")
 		} else {
@@ -1043,12 +1042,12 @@ func main() {
 			}
 			csvWriter.Flush()
 		}
+		file.Close()
 	}
 
 	// Write JSON output
 	if json_output != "" {
 		file, err := os.OpenFile(json_output, os.O_CREATE|os.O_WRONLY, 0777)
-		defer file.Close()
 		if err != nil {
 			log.Fatal("Could not open JSON file for writing.")
 		}
@@ -1061,5 +1060,6 @@ func main() {
 			log.Fatal("Error writing to JSON file: ", err)
 		}
 		file.Sync()
+		file.Close()
 	}
 }
