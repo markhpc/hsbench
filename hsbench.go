@@ -36,7 +36,7 @@ import (
 )
 
 // Global variables
-var access_key, secret_key, url_host, bucket_prefix, bucket_list, object_prefix, region, modes, output, json_output, sizeArg string
+var access_key, secret_key, url_host, bucket_prefix, bucket_list, object_prefix, region, storage_class, modes, output, json_output, sizeArg string
 var buckets []string
 var duration_secs, threads, loops int
 var object_data []byte
@@ -490,6 +490,9 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 			Key:    &key,
 			Body:   fileobj,
 		}
+		if storage_class != "" {
+			r.StorageClass = &storage_class
+		}
 		start := time.Now().UnixNano()
 		req, _ := svc.PutObjectRequest(r)
 		// Disable payload checksum calculation (very expensive)
@@ -878,6 +881,7 @@ func init() {
 	myflag.StringVar(&bucket_prefix, "bp", "hotsauce-bench", "Prefix for buckets")
 	myflag.StringVar(&bucket_list, "bl", "", "Use space-separated list of buckets for testing, not <prefix>000000000000")
 	myflag.StringVar(&region, "r", "us-east-1", "Region for testing")
+	myflag.StringVar(&storage_class, "cl", "", "Storage class to use")
 	myflag.StringVar(&modes, "m", "cxiplgdcx", "Run modes in order.  See NOTES for more info")
 	myflag.StringVar(&output, "o", "", "Write CSV output to this file")
 	myflag.StringVar(&json_output, "j", "", "Write JSON output to this file")
