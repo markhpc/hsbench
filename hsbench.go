@@ -690,7 +690,11 @@ func runBucketList(thread_num int, stats *Stats) {
 		stats.updateIntervals(thread_num)
 
 		if *p.IsTruncated {
-			marker = *p.NextMarker
+			if p.NextMarker != nil {
+				marker = *p.NextMarker
+			} else {
+				marker = *p.Contents[len(p.Contents)-1].Key
+			}
 		} else {
 			marker = ""
 			bucket_num = rand.Int63() % bucket_count
