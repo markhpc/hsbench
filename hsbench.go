@@ -46,6 +46,7 @@ var max_keys, running_threads, bucket_count, object_count, object_size, op_count
 var object_count_flag bool
 var endtime time.Time
 var interval float64
+var single_bucket bool
 
 // Our HTTP transport used for the roundtripper below
 var HTTPTransport http.RoundTripper = &http.Transport{
@@ -834,6 +835,7 @@ func init() {
 	myflag.Int64Var(&max_keys, "mk", 1000, "Maximum number of keys to retreive at once for bucket listings")
 	myflag.Int64Var(&object_count, "n", -1, "Maximum number of objects <-1 for unlimited>")
 	myflag.Int64Var(&bucket_count, "b", 1, "Number of buckets to distribute IOs across")
+	myflag.BoolVar(&single_bucket, "single_bucket", false, "Whether to use single bucket. If true - b (bucket count) parameter is ignored")
 	myflag.IntVar(&duration_secs, "d", 60, "Maximum test duration in seconds <-1 for unlimited>")
 	myflag.IntVar(&threads, "t", 1, "Number of threads to run")
 	myflag.IntVar(&loops, "l", 1, "Number of times to repeat test")
@@ -955,8 +957,12 @@ func main() {
 	initData()
 
 	// Setup the slice of buckets
-	for i := int64(0); i < bucket_count; i++ {
-		buckets = append(buckets, fmt.Sprintf("%s%012d", bucket_prefix, i))
+	if single_bucket {
+		buckets = append(buckets, bucket_prefix)
+	} else {
+		for i := int64(0); i < bucket_count; i++ {
+			buckets = append(buckets, fmt.Sprintf("%s%012d", bucket_prefix, i))
+		}
 	}
 
 	// Loop running the tests
