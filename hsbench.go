@@ -6,7 +6,6 @@ package main
 
 import (
 	"bytes"
-	"code.cloudfoundry.org/bytefmt"
 	"crypto/hmac"
 	"crypto/md5"
 	"crypto/sha1"
@@ -16,10 +15,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"io"
 	"io/ioutil"
 	"log"
@@ -34,6 +29,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"code.cloudfoundry.org/bytefmt"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 // Global variables
@@ -47,50 +48,6 @@ var object_count_flag bool
 var endtime time.Time
 var interval float64
 var single_bucket bool
-
-// Our HTTP transport used for the roundtripper below
-var HTTPTransport http.RoundTripper = &http.Transport{
-	Proxy: http.ProxyFromEnvironment,
-	Dial: (&net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-	}).Dial,
-	TLSHandshakeTimeout:   10 * time.Second,
-	ExpectContinueTimeout: 0,
-	// Set the number of idle connections to 2X the number of threads
-	MaxIdleConnsPerHost: 2 * threads,
-	MaxIdleConns:        2 * threads,
-	// But limit their idle time to 1 minute
-	IdleConnTimeout: time.Minute,
-	// Ignore TLS errors
-	TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-}
-
-var httpClient = &http.Client{Transport: HTTPTransport}
-
-func getS3Client() *s3.S3 {
-	// Build our config
-	creds := credentials.NewStaticCredentials(access_key, secret_key, "")
-	loglevel := aws.LogOff
-	// Build the rest of the configuration
-	awsConfig := &aws.Config{
-		Region:               aws.String(region),
-		Endpoint:             aws.String(url_host),
-		Credentials:          creds,
-		LogLevel:             &loglevel,
-		S3ForcePathStyle:     aws.Bool(true),
-		S3Disable100Continue: aws.Bool(true),
-		// Comment following to use default transport
-		HTTPClient: &http.Client{Transport: HTTPTransport},
-	}
-	session := session.New(awsConfig)
-	client := s3.New(session)
-	if client == nil {
-		log.Fatalf("FATAL: Unable to create new client.")
-	}
-	// Return success
-	return client
-}
 
 // canonicalAmzHeaders -- return the x-amz headers canonicalized
 func canonicalAmzHeaders(req *http.Request) string {
@@ -471,7 +428,7 @@ func (stats *Stats) finish(thread_num int) {
 	}
 }
 
-func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
+func runUpload(thread_num int, stats *Stats) {
 	errcnt := 0
 	svc := s3.New(session.New(), cfg)
 	for {
@@ -770,7 +727,7 @@ func runWrapper(loop int, r rune) []OutputStats {
 		log.Printf("Running Loop %d OBJECT PUT TEST", loop)
 		stats = makeStats(loop, "PUT", threads, intervalNano)
 		for n := 0; n < threads; n++ {
-			go runUpload(n, endtime, &stats)
+			go runUpload(n, &stats)
 		}
 	case 'l':
 		log.Printf("Running Loop %d BUCKET LIST TEST", loop)
@@ -933,6 +890,22 @@ func main() {
 		// DisableParamValidation:  aws.Bool(true),
 		DisableComputeChecksums: aws.Bool(true),
 		S3ForcePathStyle:        aws.Bool(true),
+		HTTPClient: &http.Client{Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: time.Second,
+			// Set the number of idle connections to 2X the number of threads
+			MaxIdleConnsPerHost: 2 * threads,
+			MaxIdleConns:        2 * threads,
+			// But limit their idle time to 1 minute
+			IdleConnTimeout: time.Minute,
+			// Ignore TLS errors
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}},
 	}
 
 	// Echo the parameters
