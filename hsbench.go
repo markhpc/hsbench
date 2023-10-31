@@ -10,6 +10,7 @@ import (
 	"crypto/sha1"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/csv"
 	"encoding/json"
 	"flag"
@@ -492,10 +493,10 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 		objectLen := generateSizeForObject()
 
 		key := fmt.Sprintf("%s%012d", object_prefix, objnum)
-		ts_seed := time.Now().UnixMilli()
+		ts_seed := uint64(time.Now().UnixMilli())
 		seed := generateSeed(key, ts_seed)
-		object_data := generateData(seed)
-		fileobj := bytes.NewReader(object_data[:objectLen])
+		object_data := generateData(seed, objectLen)
+		fileobj := bytes.NewReader(object_data)
 
 		r := &s3.PutObjectInput{
 			Bucket: &buckets[bucket_num],
@@ -996,15 +997,18 @@ NOTES:
 	object_min_size = int64(minSize)
 }
 
-func generateSeed(key string, it int64) int64 {
+func generateSeed(key string, ts uint64) int64 {
+	byte_ts := make([]byte, 8)
+	binary.LittleEndian.PutUint64(byte_ts, ts)
 	h := fnv.New64a()
 	h.Write([]byte(key))
-	return (int64(h.Sum64()) ^ it) * 1099511628211
+	h.Write(byte_ts)
+	return int64(h.Sum64())
 }
 
-func generateData(seed int64) []byte {
+func generateData(seed int64, len int) []byte {
 	rand_generator := rand.New(rand.NewSource(seed))
-	data := make([]byte, object_max_size)
+	data := make([]byte, len)
 	rand_generator.Read(data)
 	return data
 }
