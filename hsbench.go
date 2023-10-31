@@ -34,6 +34,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/pkg/errors"
 )
 
 // Global variables
@@ -536,7 +537,7 @@ func readBody(r io.Reader) (int64, error) {
 			bytesRead += int64(n)
 		}
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return bytesRead, nil
 			} else {
 				return bytesRead, err
@@ -586,6 +587,12 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 			bytesRead, err := readBody(resp.Body)
 			resp.Body.Close()
 			// Update the stats
+			if resp.ContentLength != nil {
+				if *resp.ContentLength != bytesRead {
+					log.Printf("downloaded %d bytes but content length is %d\n", bytesRead, *resp.ContentLength)
+					err = io.ErrUnexpectedEOF
+				}
+			}
 			stats.addOp(thread_num, bytesRead, end-start)
 			if err != nil {
 				errcnt++
