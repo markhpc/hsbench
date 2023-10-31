@@ -7,7 +7,6 @@ package main
 import (
 	"bytes"
 	"crypto/hmac"
-	"crypto/md5"
 	"crypto/sha1"
 	"crypto/tls"
 	"encoding/base64"
@@ -15,6 +14,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"math"
@@ -41,8 +41,6 @@ import (
 var access_key, secret_key, url_host, bucket_prefix, bucket_list, object_prefix, region, modes, storage_class, output, json_output, minSizeArg, sizeArg string
 var buckets []string
 var duration_secs, threads, loops int
-var object_data []byte
-var object_data_md5 string
 var max_keys, running_threads, bucket_count, first_object, object_count, object_max_size, object_min_size, op_counter int64
 var object_count_flag bool
 var endtime time.Time
@@ -492,9 +490,13 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 			break
 		}
 		objectLen := generateSizeForObject()
-		fileobj := bytes.NewReader(object_data[:objectLen])
 
 		key := fmt.Sprintf("%s%012d", object_prefix, objnum)
+		ts_seed := time.Now().UnixMilli()
+		seed := generateSeed(key, ts_seed)
+		object_data := generateData(seed)
+		fileobj := bytes.NewReader(object_data[:objectLen])
+
 		r := &s3.PutObjectInput{
 			Bucket: &buckets[bucket_num],
 			Key:    &key,
@@ -994,13 +996,17 @@ NOTES:
 	object_min_size = int64(minSize)
 }
 
-func initData() {
-	// Initialize data for the bucket
-	object_data = make([]byte, object_max_size)
-	rand.Read(object_data)
-	hasher := md5.New()
-	hasher.Write(object_data)
-	object_data_md5 = base64.StdEncoding.EncodeToString(hasher.Sum(nil))
+func generateSeed(key string, it int64) int64 {
+	h := fnv.New64a()
+	h.Write([]byte(key))
+	return (int64(h.Sum64()) ^ it) * 1099511628211
+}
+
+func generateData(seed int64) []byte {
+	rand_generator := rand.New(rand.NewSource(seed))
+	data := make([]byte, object_max_size)
+	rand_generator.Read(data)
+	return data
 }
 
 func main() {
@@ -1039,9 +1045,6 @@ func main() {
 	log.Printf("size=%s", sizeArg)
 	log.Printf("min_size=%s", minSizeArg)
 	log.Printf("interval=%f", interval)
-
-	// Init Data
-	initData()
 
 	// Setup the slice of buckets
 	if bucket_list == "" {
