@@ -1,8 +1,10 @@
-module github.com/vitalif/hsbench
+module github.com/OS-M/hsbench
 
-go 1.14
+go 1.20
 
 require (
-	code.cloudfoundry.org/bytefmt v0.0.0-20210608160410-67692ebc98de
-	github.com/aws/aws-sdk-go v1.40.51
+	code.cloudfoundry.org/bytefmt v0.0.0-20231017140541-3b893ed0421b
+	github.com/aws/aws-sdk-go v1.46.7
 )
+
+require github.com/jmespath/go-jmespath v0.4.0 // indirect

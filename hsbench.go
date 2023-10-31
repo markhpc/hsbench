@@ -37,12 +37,12 @@ import (
 )
 
 // Global variables
-var access_key, secret_key, url_host, bucket_prefix, bucket_list, object_prefix, region, storage_class, modes, output, json_output, sizeArg string
+var access_key, secret_key, url_host, bucket_prefix, bucket_list, object_prefix, region, modes, storage_class, output, json_output, minSizeArg, sizeArg string
 var buckets []string
 var duration_secs, threads, loops int
 var object_data []byte
 var object_data_md5 string
-var max_keys, running_threads, bucket_count, first_object, object_count, object_size, op_counter int64
+var max_keys, running_threads, bucket_count, first_object, object_count, object_max_size, object_min_size, op_counter int64
 var object_count_flag bool
 var endtime time.Time
 var interval float64
@@ -470,6 +470,13 @@ func (stats *Stats) finish(thread_num int) {
 	}
 }
 
+func generateSizeForObject() int {
+	if object_min_size == 0 {
+		return int(object_max_size)
+	}
+	return int(object_min_size) + rand.Intn(int(object_max_size-object_min_size)+1)
+}
+
 func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 	errcnt := 0
 	svc := s3.New(session.New(), cfg)
@@ -483,7 +490,8 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 			objnum = atomic.AddInt64(&op_counter, -1)
 			break
 		}
-		fileobj := bytes.NewReader(object_data)
+		objectLen := generateSizeForObject()
+		fileobj := bytes.NewReader(object_data[:objectLen])
 
 		key := fmt.Sprintf("%s%012d", object_prefix, objnum)
 		r := &s3.PutObjectInput{
@@ -509,7 +517,7 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 			log.Printf("upload err", err)
 		} else {
 			// Update the stats
-			stats.addOp(thread_num, object_size, end-start)
+			stats.addOp(thread_num, int64(objectLen), end-start)
 		}
 		if errcnt > 2 {
 			break
@@ -629,7 +637,7 @@ func runDelete(thread_num int, stats *Stats) {
 			log.Printf("delete err", err, "out", out.String())
 		} else {
 			// Update the stats
-			stats.addOp(thread_num, object_size, end-start)
+			stats.addOp(thread_num, object_max_size, end-start)
 		}
 		if errcnt > 2 {
 			break
@@ -898,6 +906,7 @@ func init() {
 	myflag.IntVar(&threads, "t", 1, "Number of threads to run")
 	myflag.IntVar(&loops, "l", 1, "Number of times to repeat test")
 	myflag.StringVar(&sizeArg, "z", "1M", "Size of objects in bytes with postfix K, M, and G")
+	myflag.StringVar(&minSizeArg, "mz", "1M", "Minimum size of objects in bytes with postfix K, M, and G")
 	myflag.Float64Var(&interval, "ri", 1.0, "Number of seconds between report intervals")
 	// define custom usage output with notes
 	notes :=
@@ -965,15 +974,22 @@ NOTES:
 	}
 	var err error
 	var size uint64
+	var minSize uint64
 	if size, err = bytefmt.ToBytes(sizeArg); err != nil {
 		log.Fatalf("Invalid -z argument for object size: %v", err)
 	}
-	object_size = int64(size)
+	if len(minSizeArg) > 0 {
+		if size, err = bytefmt.ToBytes(minSizeArg); err != nil {
+			log.Fatalf("Invalid -z argument for object size: %v", err)
+		}
+	}
+	object_max_size = int64(size)
+	object_min_size = int64(minSize)
 }
 
 func initData() {
 	// Initialize data for the bucket
-	object_data = make([]byte, object_size)
+	object_data = make([]byte, object_max_size)
 	rand.Read(object_data)
 	hasher := md5.New()
 	hasher.Write(object_data)
@@ -1014,6 +1030,7 @@ func main() {
 	log.Printf("threads=%d", threads)
 	log.Printf("loops=%d", loops)
 	log.Printf("size=%s", sizeArg)
+	log.Printf("min_size=%s", minSizeArg)
 	log.Printf("interval=%f", interval)
 
 	// Init Data
