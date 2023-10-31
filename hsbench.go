@@ -986,7 +986,7 @@ NOTES:
 		log.Fatalf("Invalid -z argument for object size: %v", err)
 	}
 	if len(minSizeArg) > 0 {
-		if size, err = bytefmt.ToBytes(minSizeArg); err != nil {
+		if minSize, err = bytefmt.ToBytes(minSizeArg); err != nil {
 			log.Fatalf("Invalid -z argument for object size: %v", err)
 		}
 	}
