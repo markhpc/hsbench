@@ -5,7 +5,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha1"
 	"crypto/tls"
@@ -470,11 +469,11 @@ func (stats *Stats) finish(thread_num int) {
 	}
 }
 
-func generateSizeForObject() int {
+func generateSizeForObject() int64 {
 	if object_min_size == 0 {
-		return int(object_max_size)
+		return object_max_size
 	}
-	return int(object_min_size) + rand.Intn(int(object_max_size-object_min_size)+1)
+	return object_min_size + rand.Int63n(object_max_size-object_min_size+1)
 }
 
 func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
@@ -495,8 +494,7 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 		key := fmt.Sprintf("%s%012d", object_prefix, objnum)
 		ts_seed := uint64(time.Now().UnixMilli())
 		seed := generateSeed(key, ts_seed)
-		object_data := generateData(seed, objectLen)
-		fileobj := bytes.NewReader(object_data)
+		fileobj := NewRandomReadSeeker(seed, objectLen)
 
 		r := &s3.PutObjectInput{
 			Bucket: &buckets[bucket_num],
@@ -1004,13 +1002,6 @@ func generateSeed(key string, ts uint64) int64 {
 	h.Write([]byte(key))
 	h.Write(byte_ts)
 	return int64(h.Sum64())
-}
-
-func generateData(seed int64, len int) []byte {
-	rand_generator := rand.New(rand.NewSource(seed))
-	data := make([]byte, len)
-	rand_generator.Read(data)
-	return data
 }
 
 func main() {
