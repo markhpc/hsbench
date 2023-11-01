@@ -147,10 +147,10 @@ type IntervalStats struct {
 }
 
 type ObjectInfo struct {
-	bucket  string
-	key     string
-	created time.Time
-	size    int64
+	Bucket  string
+	Key     string
+	Created time.Time
+	Size    int64
 }
 
 func (is *IntervalStats) makeOutputStats() OutputStats {
@@ -509,10 +509,10 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 		k := buckets[bucket_num] + ":" + key
 
 		object_infos[k] = ObjectInfo{
-			bucket:  buckets[bucket_num],
-			key:     key,
-			created: ts,
-			size:    objectLen,
+			Bucket:  buckets[bucket_num],
+			Key:     key,
+			Created: ts,
+			Size:    objectLen,
 		}
 
 		r := &s3.PutObjectInput{
@@ -1117,6 +1117,35 @@ func main() {
 		_, err = file.Write(data)
 		if err != nil {
 			log.Fatal("Error writing to JSON file: ", err)
+		}
+		file.Sync()
+		file.Close()
+	}
+
+	// Write objects info
+	if objects_info_output != "" {
+		file, err := os.OpenFile(objects_info_output, os.O_CREATE|os.O_WRONLY, 0777)
+		if err != nil {
+			log.Fatal("Could not open file to write objects info: ", err)
+		}
+		for key, object_info := range object_infos {
+			data, err := json.Marshal(object_info)
+			if err != nil {
+				log.Fatal("Error marshaling object info for key '", key, "': ", err)
+				continue
+			}
+			_, err = file.Write(data)
+			if err != nil {
+				log.Fatal("Error writing object info for key '", key, "': ", err)
+				log.Fatal("Abort writing")
+				break
+			}
+			_, err = file.WriteString("\n")
+			if err != nil {
+				log.Fatal("Error writing eol for key '", key, "': ", err)
+				log.Fatal("Abort writing")
+				break
+			}
 		}
 		file.Sync()
 		file.Close()
