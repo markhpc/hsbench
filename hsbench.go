@@ -46,7 +46,7 @@ var max_keys, running_threads, bucket_count, first_object, object_count, object_
 var object_count_flag bool
 var endtime time.Time
 var interval float64
-var object_infos map[string]ObjectInfo
+var object_info_chan chan ObjectInfo
 
 // Our HTTP transport used for the roundtripper below
 var HTTPTransport http.RoundTripper = &http.Transport{
@@ -149,7 +149,7 @@ type IntervalStats struct {
 type ObjectInfo struct {
 	Bucket  string
 	Key     string
-	Created time.Time
+	Created uint64
 	Size    int64
 }
 
@@ -506,12 +506,10 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 		seed := generateSeed(key, ts_seed)
 		fileobj := NewRandomReadSeeker(seed, objectLen)
 
-		k := buckets[bucket_num] + ":" + key
-
-		object_infos[k] = ObjectInfo{
+		object_info_chan <- ObjectInfo{
 			Bucket:  buckets[bucket_num],
 			Key:     key,
-			Created: ts,
+			Created: ts_seed,
 			Size:    objectLen,
 		}
 
@@ -647,10 +645,6 @@ func runDelete(thread_num int, stats *Stats) {
 		bucket_num := objnum % int64(bucket_count)
 
 		key := fmt.Sprintf("%s%012d", object_prefix, objnum)
-
-		k := buckets[bucket_num] + ":" + key
-		delete(object_infos, k)
-
 		r := &s3.DeleteObjectInput{
 			Bucket: &buckets[bucket_num],
 			Key:    &key,
@@ -1076,7 +1070,45 @@ func main() {
 	}
 
 	// Setup map of objects info
-	object_infos = make(map[string]ObjectInfo)
+	object_info_chan = make(chan ObjectInfo, 1000)
+
+	// Write objects info
+	wg := sync.WaitGroup{}
+	if objects_info_output != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			file, err := os.OpenFile(objects_info_output, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0777)
+			if err != nil {
+				log.Fatal("Could not open file to write objects info: ", err)
+			}
+
+			for object_info := range object_info_chan {
+				data, err := json.Marshal(object_info)
+				if err != nil {
+					log.Fatal("Error marshaling object info for key '", object_info.Key, "': ", err)
+					continue
+				}
+				_, err = file.Write(data)
+				if err != nil {
+					log.Fatal("Error writing object info for key '", object_info.Key, "': ", err)
+					log.Fatal("Abort writing")
+					break
+				}
+				_, err = file.WriteString("\n")
+				if err != nil {
+					log.Fatal("Error writing eol for key '", object_info.Key, "': ", err)
+					log.Fatal("Abort writing")
+					break
+				}
+			}
+
+			file.Sync()
+			file.Close()
+
+		}()
+	}
 
 	// Loop running the tests
 	oStats := make([]OutputStats, 0)
@@ -1085,6 +1117,9 @@ func main() {
 			oStats = append(oStats, runWrapper(loop, r)...)
 		}
 	}
+
+	close(object_info_chan)
+	wg.Wait()
 
 	// Write CSV Output
 	if output != "" {
@@ -1117,35 +1152,6 @@ func main() {
 		_, err = file.Write(data)
 		if err != nil {
 			log.Fatal("Error writing to JSON file: ", err)
-		}
-		file.Sync()
-		file.Close()
-	}
-
-	// Write objects info
-	if objects_info_output != "" {
-		file, err := os.OpenFile(objects_info_output, os.O_CREATE|os.O_WRONLY, 0777)
-		if err != nil {
-			log.Fatal("Could not open file to write objects info: ", err)
-		}
-		for key, object_info := range object_infos {
-			data, err := json.Marshal(object_info)
-			if err != nil {
-				log.Fatal("Error marshaling object info for key '", key, "': ", err)
-				continue
-			}
-			_, err = file.Write(data)
-			if err != nil {
-				log.Fatal("Error writing object info for key '", key, "': ", err)
-				log.Fatal("Abort writing")
-				break
-			}
-			_, err = file.WriteString("\n")
-			if err != nil {
-				log.Fatal("Error writing eol for key '", key, "': ", err)
-				log.Fatal("Abort writing")
-				break
-			}
 		}
 		file.Sync()
 		file.Close()
