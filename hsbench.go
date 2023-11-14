@@ -31,10 +31,13 @@ import (
 
 	"code.cloudfoundry.org/bytefmt"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/pkg/errors"
+
+	"github.com/OS-M/hsbench/internal"
 )
 
 // Global variables
@@ -47,6 +50,22 @@ var object_count_flag bool
 var endtime time.Time
 var interval float64
 var object_info_chan chan ObjectInfo
+var response_statuses map[string]int
+var response_statuses_mu sync.Mutex
+
+func processAWSError(err error) {
+	if err == nil {
+		return
+	}
+
+	response_statuses_mu.Lock()
+	defer response_statuses_mu.Unlock()
+	if aerr, ok := err.(awserr.Error); ok {
+		response_statuses[aerr.Code()]++
+	} else {
+		response_statuses[err.Error()]++
+	}
+}
 
 // Our HTTP transport used for the roundtripper below
 var HTTPTransport http.RoundTripper = &http.Transport{
@@ -175,6 +194,13 @@ func (is *IntervalStats) makeOutputStats() OutputStats {
 	mbps := float64(is.bytes) / seconds / bytefmt.MEGABYTE
 	iops := float64(ops) / seconds
 
+	response_statuses_mu.Lock()
+	statuses := make(map[string]int, len(response_statuses))
+	for status, count := range response_statuses {
+		statuses[status] = count
+	}
+	response_statuses_mu.Unlock()
+
 	return OutputStats{
 		is.loop,
 		is.name,
@@ -187,7 +213,9 @@ func (is *IntervalStats) makeOutputStats() OutputStats {
 		avgLat,
 		NinetyNineLat,
 		maxLat,
-		is.slowdowns}
+		is.slowdowns,
+		statuses,
+	}
 }
 
 type OutputStats struct {
@@ -203,11 +231,12 @@ type OutputStats struct {
 	NinetyNineLat float64
 	MaxLat        float64
 	Slowdowns     int64
+	statuses      map[string]int
 }
 
 func (o *OutputStats) log() {
 	log.Printf(
-		"Loop: %d, Int: %s, Dur(s): %.1f, Mode: %s, Ops: %d, MB/s: %.2f, IO/s: %.0f, Lat(ms): [ min: %.1f, avg: %.1f, 99%%: %.1f, max: %.1f ], Slowdowns: %d",
+		"Loop: %d, Int: %s, Dur(s): %.1f, Mode: %s, Ops: %d, MB/s: %.2f, IO/s: %.0f, Lat(ms): [ min: %.1f, avg: %.1f, 99%%: %.1f, max: %.1f ], Slowdowns: %d, Statuses: %v",
 		o.Loop,
 		o.IntervalName,
 		o.Seconds,
@@ -219,7 +248,9 @@ func (o *OutputStats) log() {
 		o.AvgLat,
 		o.NinetyNineLat,
 		o.MaxLat,
-		o.Slowdowns)
+		o.Slowdowns,
+		o.statuses,
+	)
 }
 
 func (o *OutputStats) csv_header(w *csv.Writer) {
@@ -292,7 +323,15 @@ type ThreadStats struct {
 
 func makeThreadStats(s int64, loop int, mode string, intervalNano int64) ThreadStats {
 	ts := ThreadStats{s, 0, []IntervalStats{}}
-	ts.intervals = append(ts.intervals, IntervalStats{loop, "0", mode, 0, 0, intervalNano, []int64{}})
+	ts.intervals = append(ts.intervals, IntervalStats{
+		loop,
+		"0",
+		mode,
+		0,
+		0,
+		intervalNano,
+		[]int64{},
+	})
 	return ts
 }
 
@@ -303,16 +342,15 @@ func (ts *ThreadStats) updateIntervals(loop int, mode string, intervalNano int64
 	}
 	for ts.start+intervalNano*(ts.curInterval+1) < time.Now().UnixNano() {
 		ts.curInterval++
-		ts.intervals = append(
-			ts.intervals,
-			IntervalStats{
-				loop,
-				strconv.FormatInt(ts.curInterval, 10),
-				mode,
-				0,
-				0,
-				intervalNano,
-				[]int64{}})
+		ts.intervals = append(ts.intervals, IntervalStats{
+			loop,
+			strconv.FormatInt(ts.curInterval, 10),
+			mode,
+			0,
+			0,
+			intervalNano,
+			[]int64{},
+		})
 	}
 	return ts.curInterval
 }
@@ -387,7 +425,15 @@ func (stats *Stats) makeOutputStats(i int64) (OutputStats, bool) {
 		c += copy(tmpLat[c:], stats.threadStats[t].intervals[i].latNano)
 	}
 	sort.Slice(tmpLat, func(i, j int) bool { return tmpLat[i] < tmpLat[j] })
-	is := IntervalStats{stats.loop, strconv.FormatInt(i, 10), stats.mode, bytes, slowdowns, stats.intervalNano, tmpLat}
+	is := IntervalStats{
+		stats.loop,
+		strconv.FormatInt(i, 10),
+		stats.mode,
+		bytes,
+		slowdowns,
+		stats.intervalNano,
+		tmpLat,
+	}
 	return is.makeOutputStats(), true
 }
 
@@ -504,7 +550,8 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 		ts := time.Now()
 		ts_seed := uint64(ts.UnixMilli())
 		seed := generateSeed(key, ts_seed)
-		fileobj := NewRandomReadSeeker(seed, objectLen)
+		fileobj := internal.NewRandomReadSeeker(seed, objectLen)
+		//var fileobj io.ReadSeeker
 
 		object_info_chan <- ObjectInfo{
 			Bucket:  buckets[bucket_num],
@@ -529,6 +576,7 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 		end := time.Now().UnixNano()
 		stats.updateIntervals(thread_num)
 
+		processAWSError(err)
 		if err != nil {
 			errcnt++
 			stats.addSlowDown(thread_num)
@@ -537,9 +585,6 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 		} else {
 			// Update the stats
 			stats.addOp(thread_num, int64(objectLen), end-start)
-		}
-		if errcnt > 2 {
-			break
 		}
 	}
 	stats.finish(thread_num)
@@ -596,6 +641,8 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 		err := req.Send()
 		end := time.Now().UnixNano()
 		stats.updateIntervals(thread_num)
+
+		processAWSError(err)
 		if err != nil {
 			errcnt++
 			stats.addSlowDown(thread_num)
@@ -618,10 +665,6 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 				log.Printf("download err", err)
 			}
 		}
-		if errcnt > 2 {
-			break
-		}
-
 	}
 	stats.finish(thread_num)
 	atomic.AddInt64(&running_threads, -1)
@@ -656,6 +699,7 @@ func runDelete(thread_num int, stats *Stats) {
 		end := time.Now().UnixNano()
 		stats.updateIntervals(thread_num)
 
+		processAWSError(err)
 		if err != nil {
 			errcnt++
 			stats.addSlowDown(thread_num)
@@ -663,9 +707,6 @@ func runDelete(thread_num int, stats *Stats) {
 		} else {
 			// Update the stats
 			stats.addOp(thread_num, object_max_size, end-start)
-		}
-		if errcnt > 2 {
-			break
 		}
 	}
 	stats.finish(thread_num)
@@ -690,6 +731,7 @@ func runBucketDelete(thread_num int, stats *Stats) {
 		end := time.Now().UnixNano()
 		stats.updateIntervals(thread_num)
 
+		processAWSError(err)
 		if err != nil {
 			break
 		}
@@ -717,6 +759,7 @@ func runBucketList(thread_num int, stats *Stats) {
 		})
 		end := time.Now().UnixNano()
 
+		processAWSError(err)
 		if err != nil {
 			break
 		}
@@ -755,6 +798,7 @@ func runBucketsInit(thread_num int, stats *Stats) {
 		end := time.Now().UnixNano()
 		stats.updateIntervals(thread_num)
 
+		processAWSError(err)
 		if err != nil {
 			if !strings.Contains(err.Error(), s3.ErrCodeBucketAlreadyOwnedByYou) &&
 				!strings.Contains(err.Error(), "BucketAlreadyExists") {
@@ -805,6 +849,7 @@ func runBucketsClear(list <-chan pagedObject, thread_num int, stats *Stats) {
 		})
 		end := time.Now().UnixNano()
 		stats.updateIntervals(thread_num)
+		processAWSError(err)
 		if err != nil {
 			break
 		}
@@ -1068,6 +1113,8 @@ func main() {
 	} else {
 		buckets = strings.Split(bucket_list, " ")
 	}
+
+	response_statuses = make(map[string]int, 50)
 
 	// Setup map of objects info
 	object_info_chan = make(chan ObjectInfo, 1000)
