@@ -5,16 +5,16 @@
 package main
 
 import (
-	"bytes"
 	"crypto/hmac"
-	"crypto/md5"
 	"crypto/sha1"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"math"
@@ -39,14 +39,14 @@ import (
 
 // Global variables
 var access_key, secret_key, url_host, bucket_prefix, bucket_list, object_prefix, region, modes, storage_class, output, json_output, minSizeArg, sizeArg string
+var objects_info_output string
 var buckets []string
 var duration_secs, threads, loops int
-var object_data []byte
-var object_data_md5 string
 var max_keys, running_threads, bucket_count, first_object, object_count, object_max_size, object_min_size, op_counter int64
 var object_count_flag bool
 var endtime time.Time
 var interval float64
+var object_info_chan chan ObjectInfo
 
 // Our HTTP transport used for the roundtripper below
 var HTTPTransport http.RoundTripper = &http.Transport{
@@ -144,6 +144,13 @@ type IntervalStats struct {
 	slowdowns    int64
 	intervalNano int64
 	latNano      []int64
+}
+
+type ObjectInfo struct {
+	Bucket  string
+	Key     string
+	Created uint64
+	Size    int64
 }
 
 func (is *IntervalStats) makeOutputStats() OutputStats {
@@ -471,11 +478,11 @@ func (stats *Stats) finish(thread_num int) {
 	}
 }
 
-func generateSizeForObject() int {
+func generateSizeForObject() int64 {
 	if object_min_size == 0 {
-		return int(object_max_size)
+		return object_max_size
 	}
-	return int(object_min_size) + rand.Intn(int(object_max_size-object_min_size)+1)
+	return object_min_size + rand.Int63n(object_max_size-object_min_size+1)
 }
 
 func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
@@ -492,9 +499,20 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 			break
 		}
 		objectLen := generateSizeForObject()
-		fileobj := bytes.NewReader(object_data[:objectLen])
 
 		key := fmt.Sprintf("%s%012d", object_prefix, objnum)
+		ts := time.Now()
+		ts_seed := uint64(ts.UnixMilli())
+		seed := generateSeed(key, ts_seed)
+		fileobj := NewRandomReadSeeker(seed, objectLen)
+
+		object_info_chan <- ObjectInfo{
+			Bucket:  buckets[bucket_num],
+			Key:     key,
+			Created: ts_seed,
+			Size:    objectLen,
+		}
+
 		r := &s3.PutObjectInput{
 			Bucket: &buckets[bucket_num],
 			Key:    &key,
@@ -905,6 +923,7 @@ func init() {
 	myflag.StringVar(&modes, "m", "cxiplgdcx", "Run modes in order.  See NOTES for more info")
 	myflag.StringVar(&output, "o", "", "Write CSV output to this file")
 	myflag.StringVar(&json_output, "j", "", "Write JSON output to this file")
+	myflag.StringVar(&objects_info_output, "objs-info", "", "Write written objects info in JSON Lines format to this file")
 	myflag.Int64Var(&max_keys, "mk", 1000, "Maximum number of keys to retreive at once for bucket listings")
 	myflag.Int64Var(&object_count, "n", -1, "Maximum number of objects <-1 for unlimited>")
 	myflag.Int64Var(&first_object, "f", 0, "Object number to start with")
@@ -994,13 +1013,13 @@ NOTES:
 	object_min_size = int64(minSize)
 }
 
-func initData() {
-	// Initialize data for the bucket
-	object_data = make([]byte, object_max_size)
-	rand.Read(object_data)
-	hasher := md5.New()
-	hasher.Write(object_data)
-	object_data_md5 = base64.StdEncoding.EncodeToString(hasher.Sum(nil))
+func generateSeed(key string, ts uint64) int64 {
+	byte_ts := make([]byte, 8)
+	binary.LittleEndian.PutUint64(byte_ts, ts)
+	h := fnv.New64a()
+	h.Write([]byte(key))
+	h.Write(byte_ts)
+	return int64(h.Sum64())
 }
 
 func main() {
@@ -1029,6 +1048,7 @@ func main() {
 	log.Printf("modes=%s", modes)
 	log.Printf("output=%s", output)
 	log.Printf("json_output=%s", json_output)
+	log.Printf("objects_info_output=%s", objects_info_output)
 	log.Printf("max_keys=%d", max_keys)
 	log.Printf("object_count=%d", object_count)
 	log.Printf("first_object=%d", first_object)
@@ -1040,9 +1060,6 @@ func main() {
 	log.Printf("min_size=%s", minSizeArg)
 	log.Printf("interval=%f", interval)
 
-	// Init Data
-	initData()
-
 	// Setup the slice of buckets
 	if bucket_list == "" {
 		for i := int64(0); i < bucket_count; i++ {
@@ -1052,6 +1069,47 @@ func main() {
 		buckets = strings.Split(bucket_list, " ")
 	}
 
+	// Setup map of objects info
+	object_info_chan = make(chan ObjectInfo, 1000)
+
+	// Write objects info
+	wg := sync.WaitGroup{}
+	if objects_info_output != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			file, err := os.OpenFile(objects_info_output, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0777)
+			if err != nil {
+				log.Fatal("Could not open file to write objects info: ", err)
+			}
+
+			for object_info := range object_info_chan {
+				data, err := json.Marshal(object_info)
+				if err != nil {
+					log.Fatal("Error marshaling object info for key '", object_info.Key, "': ", err)
+					continue
+				}
+				_, err = file.Write(data)
+				if err != nil {
+					log.Fatal("Error writing object info for key '", object_info.Key, "': ", err)
+					log.Fatal("Abort writing")
+					break
+				}
+				_, err = file.WriteString("\n")
+				if err != nil {
+					log.Fatal("Error writing eol for key '", object_info.Key, "': ", err)
+					log.Fatal("Abort writing")
+					break
+				}
+			}
+
+			file.Sync()
+			file.Close()
+
+		}()
+	}
+
 	// Loop running the tests
 	oStats := make([]OutputStats, 0)
 	for loop := 0; loop < loops; loop++ {
@@ -1059,6 +1117,9 @@ func main() {
 			oStats = append(oStats, runWrapper(loop, r)...)
 		}
 	}
+
+	close(object_info_chan)
+	wg.Wait()
 
 	// Write CSV Output
 	if output != "" {
