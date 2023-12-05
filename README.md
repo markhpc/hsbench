@@ -89,6 +89,8 @@ OPTIONS:
     	URL for host with method prefix
   -z string
     	Size of objects in bytes with postfix K, M, and G (default "1M")
+  -zd
+      In PUT operations write zeroes as objects data instead of random data
 
 NOTES:
   - Valid mode types for the -m mode string are:
