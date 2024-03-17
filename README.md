@@ -17,6 +17,7 @@ hsbench tries to improve on the original Wasabi s3-benchmark in the following wa
 *	Test length can be limited either by duration or maximum number of objects.
 *	Object prefixes can be set to test large object names (12 bytes reserved for uniqueness)
 *	Bucket/Object prefixes can be used to allow multiple clients to target the same buckets
+*   You can use hsbench to delete buckets in parallel: `./hsbench -a ... -s ... -u http://... -m cx -t 32 -bl "bucket1 bucket2 ..."` (-t is the number of threads)
 
 ## Limitations
 
@@ -36,14 +37,14 @@ To leverage this tool, the following prerequisites apply:
 The easiest way to install hsbench is to use go's built in github support:
 
 ```
-go get github.com/markhpc/hsbench
+go get github.com/vponomarev/hsbench
 ```
 
 Then in the hsbench src directory run 'go build':
 
 ```
 $ pwd
-/home/perf/go/src/github.com/markhpc/hsbench
+/home/perf/go/src/github.com/vponomarev/hsbench
 $ go build
 ```
 
