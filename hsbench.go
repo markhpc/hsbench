@@ -6,6 +6,7 @@ package main
 
 import (
 	"code.cloudfoundry.org/bytefmt"
+	"context"
 	"crypto/hmac"
 	"crypto/sha1"
 	"crypto/tls"
@@ -38,8 +39,14 @@ import (
 	"time"
 )
 
+const (
+	ErrContextRequestCancelled = "request context canceled"
+	ErrContextDeadlineExceeded = "context deadline exceeded"
+)
+
 // Global variables
 var access_key, secret_key, url_host, bucket_prefix, bucket_list, object_prefix, region, modes, storage_class, output, json_output, minSizeArg, sizeArg string
+var op_timeout int64
 var objects_info_output string
 var buckets []string
 var duration_secs, threads, loops int
@@ -50,6 +57,7 @@ var interval float64
 var object_info_chan chan ObjectInfo
 var response_statuses map[string]int
 var response_statuses_mu sync.Mutex
+var app_context context.Context
 
 func processAWSError(err error) {
 	if err == nil {
@@ -164,10 +172,12 @@ type IntervalStats struct {
 }
 
 type ObjectInfo struct {
-	Bucket  string
-	Key     string
-	Created uint64
-	Size    int64
+	Bucket   string
+	Key      string
+	Created  uint64
+	Size     int64
+	Duration time.Duration
+	Error    string
 }
 
 func (is *IntervalStats) makeOutputStats() OutputStats {
@@ -197,6 +207,9 @@ func (is *IntervalStats) makeOutputStats() OutputStats {
 	for status, count := range response_statuses {
 		statuses[status] = count
 	}
+
+	// Clear statuses map
+	response_statuses = make(map[string]int, 50)
 	response_statuses_mu.Unlock()
 
 	return OutputStats{
@@ -533,13 +546,6 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 		seed := generateSeed(key, ts_seed)
 		fileobj := internal.NewRandomReadSeeker(seed, objectLen)
 
-		object_info_chan <- ObjectInfo{
-			Bucket:  buckets[bucket_num],
-			Key:     key,
-			Created: ts_seed,
-			Size:    objectLen,
-		}
-
 		r := &s3.PutObjectInput{
 			Bucket: &buckets[bucket_num],
 			Key:    &key,
@@ -550,25 +556,49 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 		}
 		start := time.Now().UnixNano()
 		req, _ := svc.PutObjectRequest(r)
+
+		// Set up operation timeout if requested
+		if op_timeout > 0 {
+			ctx, _ := context.WithTimeout(app_context, time.Duration(op_timeout)*time.Millisecond)
+			req.HTTPRequest = req.HTTPRequest.Clone(ctx)
+		}
+
 		// Disable payload checksum calculation (very expensive)
 		req.HTTPRequest.Header.Add("X-Amz-Content-Sha256", "UNSIGNED-PAYLOAD")
 		err := req.Send()
 		end := time.Now().UnixNano()
 		stats.updateIntervals(thread_num)
 
+		errText := ""
+		if err != nil {
+			errText = err.Error()
+		}
+		object_info_chan <- ObjectInfo{
+			Bucket:   buckets[bucket_num],
+			Key:      key,
+			Created:  ts_seed,
+			Size:     objectLen,
+			Duration: time.Duration(end - start),
+			Error:    errText,
+		}
+
 		processAWSError(err)
 		if err != nil {
 			errcnt++
 			stats.addSlowDown(thread_num)
 			atomic.AddInt64(&op_counter, -1)
-			log.Printf("upload err", err)
+			// fmt.Println(err.Error())
+			if !strings.Contains(err.Error(), ErrContextRequestCancelled) {
+				log.Printf("upload err", err)
+			}
 		} else {
 			// Update the stats
 			stats.addOp(thread_num, int64(objectLen), end-start)
 		}
-		if errcnt > 2 {
-			break
-		}
+		//if errcnt > 2 {
+		//	log.Printf("Too much errors, breaking")
+		//	break
+		//}
 	}
 	stats.finish(thread_num)
 	atomic.AddInt64(&running_threads, -1)
@@ -621,6 +651,13 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 
 		start := time.Now().UnixNano()
 		req, resp := svc.GetObjectRequest(r)
+
+		// Set up operation timeout if requested
+		if op_timeout > 0 {
+			ctx, _ := context.WithTimeout(app_context, time.Duration(op_timeout)*time.Millisecond)
+			req.HTTPRequest = req.HTTPRequest.Clone(ctx)
+		}
+
 		err := req.Send()
 		end := time.Now().UnixNano()
 		stats.updateIntervals(thread_num)
@@ -629,16 +666,26 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 		if err != nil {
 			errcnt++
 			stats.addSlowDown(thread_num)
-			log.Printf("download err", err)
+
+			if !strings.Contains(err.Error(), ErrContextDeadlineExceeded) {
+				log.Printf("download err", err)
+			}
 		} else {
 			var bytesRead int64 = 0
-			bytesRead, err := readBody(resp.Body)
+			bytesRead, err2 := readBody(resp.Body)
 			resp.Body.Close()
-			// Update the stats
-			if resp.ContentLength != nil {
-				if *resp.ContentLength != bytesRead {
-					log.Printf("downloaded %d bytes but content length is %d\n", bytesRead, *resp.ContentLength)
-					err = io.ErrUnexpectedEOF
+
+			if err2 != nil {
+				if !strings.Contains(err2.Error(), ErrContextDeadlineExceeded) {
+					log.Printf("download err during reading body", err2)
+				}
+			} else {
+				// Update the stats
+				if resp.ContentLength != nil {
+					if *resp.ContentLength != bytesRead {
+						log.Printf("downloaded %d bytes but content length is %d\n", bytesRead, *resp.ContentLength)
+						err = io.ErrUnexpectedEOF
+					}
 				}
 			}
 			stats.addOp(thread_num, bytesRead, end-start)
@@ -954,6 +1001,7 @@ func init() {
 	myflag.StringVar(&modes, "m", "cxiplgdcx", "Run modes in order.  See NOTES for more info")
 	myflag.StringVar(&output, "o", "", "Write CSV output to this file")
 	myflag.StringVar(&json_output, "j", "", "Write JSON output to this file")
+	myflag.StringVar(&objects_info_output, "oj", "", "Detailed log for object operations")
 	myflag.Int64Var(&max_keys, "mk", 1000, "Maximum number of keys to retreive at once for bucket listings")
 	myflag.Int64Var(&object_count, "n", -1, "Maximum number of objects <-1 for unlimited>")
 	myflag.Int64Var(&first_object, "f", 0, "Object number to start with")
@@ -961,8 +1009,9 @@ func init() {
 	myflag.IntVar(&duration_secs, "d", 60, "Maximum test duration in seconds <-1 for unlimited>")
 	myflag.IntVar(&threads, "t", 1, "Number of threads to run")
 	myflag.IntVar(&loops, "l", 1, "Number of times to repeat test")
+	myflag.Int64Var(&op_timeout, "tt", 0, "Timeout for GET/PUT operations (in ms)")
 	myflag.StringVar(&sizeArg, "z", "1M", "Size of objects in bytes with postfix K, M, and G")
-	myflag.StringVar(&minSizeArg, "mz", "1M", "Minimum size of objects in bytes with postfix K, M, and G")
+	myflag.StringVar(&minSizeArg, "mz", "", "Minimum size of objects in bytes with postfix K, M, and G")
 	myflag.Float64Var(&interval, "ri", 1.0, "Number of seconds between report intervals")
 	// define custom usage output with notes
 	notes :=
@@ -1056,6 +1105,8 @@ func main() {
 	// Hello
 	log.Printf("Hotsauce S3 Benchmark Version 0.x DEV")
 
+	app_context = context.TODO()
+
 	cfg = &aws.Config{
 		Endpoint:    aws.String(url_host),
 		Credentials: credentials.NewStaticCredentials(access_key, secret_key, ""),
@@ -1089,6 +1140,7 @@ func main() {
 	log.Printf("size=%s", sizeArg)
 	log.Printf("min_size=%s", minSizeArg)
 	log.Printf("interval=%f", interval)
+	log.Printf("operation_timeout=%d", op_timeout)
 
 	// // Init Data
 	// initData()
@@ -1142,6 +1194,11 @@ func main() {
 			file.Sync()
 			file.Close()
 
+		}()
+	} else {
+		go func() {
+			for _ = range object_info_chan {
+			}
 		}()
 	}
 
