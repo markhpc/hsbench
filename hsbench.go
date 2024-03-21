@@ -47,6 +47,8 @@ const (
 // Global variables
 var access_key, secret_key, url_host, bucket_prefix, bucket_list, object_prefix, region, modes, storage_class, output, json_output, minSizeArg, sizeArg string
 var op_timeout int64
+var ranged_offset int64
+var ranged_size int64
 var objects_info_output string
 var buckets []string
 var duration_secs, threads, loops int
@@ -177,7 +179,7 @@ type ObjectInfo struct {
 	Created  uint64
 	Size     int64
 	Duration time.Duration
-	Error    string
+	Error    string `json:",omitempty"`
 }
 
 func (is *IntervalStats) makeOutputStats() OutputStats {
@@ -578,7 +580,7 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 			Key:      key,
 			Created:  ts_seed,
 			Size:     objectLen,
-			Duration: time.Duration(end - start),
+			Duration: time.Duration(end-start) / 1000,
 			Error:    errText,
 		}
 
@@ -633,7 +635,7 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 		var objnum int64
 		if object_count > -1 {
 			// Run random download if the number of objects is known
-			objnum = rand.Int63() % object_count
+			objnum = first_object + rand.Int63()%object_count
 		} else {
 			objnum = atomic.AddInt64(&op_counter, 1)
 			if object_count > -1 && objnum >= object_count {
@@ -647,6 +649,17 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 		r := &s3.GetObjectInput{
 			Bucket: &buckets[bucket_num],
 			Key:    &key,
+		}
+
+		// Ranged get request
+
+		rr := ""
+		if ranged_size > 0 {
+			rr = fmt.Sprintf("bytes=%d-%d", ranged_offset, ranged_offset+ranged_size)
+			r.Range = &rr
+		} else if ranged_offset > 0 {
+			rr = fmt.Sprintf("bytes=%d-", ranged_offset)
+			r.Range = &rr
 		}
 
 		start := time.Now().UnixNano()
@@ -668,7 +681,7 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 			stats.addSlowDown(thread_num)
 
 			if !strings.Contains(err.Error(), ErrContextDeadlineExceeded) {
-				log.Printf("download err", err)
+				log.Printf("download err: obj=[%s], err=[%v]", key, err)
 			}
 		} else {
 			var bytesRead int64 = 0
@@ -680,6 +693,9 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 					log.Printf("download err during reading body", err2)
 				}
 			} else {
+				// Update request finish time
+				end = time.Now().UnixNano()
+
 				// Update the stats
 				if resp.ContentLength != nil {
 					if *resp.ContentLength != bytesRead {
@@ -1010,6 +1026,8 @@ func init() {
 	myflag.IntVar(&threads, "t", 1, "Number of threads to run")
 	myflag.IntVar(&loops, "l", 1, "Number of times to repeat test")
 	myflag.Int64Var(&op_timeout, "tt", 0, "Timeout for GET/PUT operations (in ms)")
+	myflag.Int64Var(&ranged_offset, "ro", 0, "GET Ranged request: offset (bytes)")
+	myflag.Int64Var(&ranged_size, "rs", 0, "GET Ranged request: size (bytes)")
 	myflag.StringVar(&sizeArg, "z", "1M", "Size of objects in bytes with postfix K, M, and G")
 	myflag.StringVar(&minSizeArg, "mz", "", "Minimum size of objects in bytes with postfix K, M, and G")
 	myflag.Float64Var(&interval, "ri", 1.0, "Number of seconds between report intervals")
@@ -1141,6 +1159,8 @@ func main() {
 	log.Printf("min_size=%s", minSizeArg)
 	log.Printf("interval=%f", interval)
 	log.Printf("operation_timeout=%d", op_timeout)
+	log.Printf("ranged_offset=%d", ranged_offset)
+	log.Printf("ranged_size=%d", ranged_size)
 
 	// // Init Data
 	// initData()
