@@ -60,6 +60,9 @@ var object_info_chan chan ObjectInfo
 var response_statuses map[string]int
 var response_statuses_mu sync.Mutex
 var app_context context.Context
+var workload_profile_file string
+var workload_profile_name string
+var workload_config WorkloadConfig
 
 func processAWSError(err error) {
 	if err == nil {
@@ -625,12 +628,16 @@ func readBody(r io.Reader) (int64, error) {
 }
 
 func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
+	iterator := int64(-1)
 	errcnt := 0
 	svc := s3.New(session.New(), cfg)
 	for {
 		if duration_secs > -1 && time.Now().After(endtime) {
 			break
 		}
+
+		iterator++
+		wpe := workload_config.GetEntry(0, iterator)
 
 		var objnum int64
 		if object_count > -1 {
@@ -644,21 +651,26 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 			}
 		}
 
-		bucket_num := objnum % int64(bucket_count)
+		bucketNum := objnum % int64(bucket_count)
+		bucketName := buckets[bucketNum]
+		if wpe.Bucket != "" {
+			bucketName = wpe.Bucket
+		}
+
 		key := fmt.Sprintf("%s%012d", object_prefix, objnum)
 		r := &s3.GetObjectInput{
-			Bucket: &buckets[bucket_num],
+			Bucket: &bucketName,
 			Key:    &key,
 		}
 
 		// Ranged get request
 
 		rr := ""
-		if ranged_size > 0 {
-			rr = fmt.Sprintf("bytes=%d-%d", ranged_offset, ranged_offset+ranged_size)
+		if wpe.Size > 0 {
+			rr = fmt.Sprintf("bytes=%d-%d", wpe.Offset, wpe.Offset+wpe.Size)
 			r.Range = &rr
-		} else if ranged_offset > 0 {
-			rr = fmt.Sprintf("bytes=%d-", ranged_offset)
+		} else if wpe.Offset > 0 {
+			rr = fmt.Sprintf("bytes=%d-", wpe.Offset)
 			r.Range = &rr
 		}
 
@@ -1031,6 +1043,8 @@ func init() {
 	myflag.StringVar(&sizeArg, "z", "1M", "Size of objects in bytes with postfix K, M, and G")
 	myflag.StringVar(&minSizeArg, "mz", "", "Minimum size of objects in bytes with postfix K, M, and G")
 	myflag.Float64Var(&interval, "ri", 1.0, "Number of seconds between report intervals")
+	myflag.StringVar(&workload_profile_file, "wp", "", "Name of workload profile file")
+	myflag.StringVar(&workload_profile_name, "p", "", "Name of workload profile (default: first one)")
 	// define custom usage output with notes
 	notes :=
 		`
@@ -1134,6 +1148,19 @@ func main() {
 		S3ForcePathStyle:        aws.Bool(true),
 	}
 
+	// Check workload profile
+	if workload_profile_file != "" {
+		w, err := LoadWorkloadConfig(workload_profile_file)
+		if err != nil {
+			log.Printf("Error loading workload profile config file: %v", err)
+			return
+		}
+		workload_config = w
+	} else {
+		// Generate default workload profile
+		workload_config.AddDefaultProfile("", 1, ranged_size, ranged_offset)
+	}
+
 	// Echo the parameters
 	log.Printf("Parameters:")
 	log.Printf("url=%s", url_host)
@@ -1161,6 +1188,8 @@ func main() {
 	log.Printf("operation_timeout=%d", op_timeout)
 	log.Printf("ranged_offset=%d", ranged_offset)
 	log.Printf("ranged_size=%d", ranged_size)
+	log.Printf("workload_profile_file=%s", workload_profile_file)
+	log.Printf("workload_profile_name=%s", workload_profile_name)
 
 	// // Init Data
 	// initData()
