@@ -1,14 +1,20 @@
 ---
+s3:
+  - name: "default"
+    endpoints: []
+    access_key: ""
+    secret_key: ""
+
 profiles:
   - name: default
     entries:
       - bucket: ""
         count: 44
-        size: 100000
-        offset: 5000000
+        #size: 100000
+        #offset: 5000000
       - bucket: ""
         count: 16
-        size: 1000000
-        offset: 10000000
+        #size: 1000000
+        #offset: 10000000
       - bucket: ""
         count: 10

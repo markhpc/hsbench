@@ -176,15 +176,6 @@ type IntervalStats struct {
 	latNano      []int64
 }
 
-type ObjectInfo struct {
-	Bucket   string
-	Key      string
-	Created  uint64
-	Size     int64
-	Duration time.Duration
-	Error    string `json:",omitempty"`
-}
-
 func (is *IntervalStats) makeOutputStats() OutputStats {
 	// Compute and log the stats
 	ops := len(is.latNano)
@@ -531,12 +522,16 @@ func generateSizeForObject() int64 {
 }
 
 func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
+	iterator := int64(-1)
 	errcnt := 0
-	svc := s3.New(session.New(), cfg)
+	svcL := GetS3Services("")
+
 	for {
 		if duration_secs > -1 && time.Now().After(endtime) {
 			break
 		}
+		iterator++
+
 		objnum := atomic.AddInt64(&op_counter, 1)
 		bucket_num := objnum % int64(bucket_count)
 		if object_count > -1 && objnum >= object_count {
@@ -560,7 +555,7 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 			r.StorageClass = &storage_class
 		}
 		start := time.Now().UnixNano()
-		req, _ := svc.PutObjectRequest(r)
+		req, _ := svcL[iterator%int64(len(svcL))].PutObjectRequest(r)
 
 		// Set up operation timeout if requested
 		if op_timeout > 0 {
@@ -630,7 +625,8 @@ func readBody(r io.Reader) (int64, error) {
 func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 	iterator := int64(-1)
 	errcnt := 0
-	svc := s3.New(session.New(), cfg)
+	svcL := GetS3Services("")
+
 	for {
 		if duration_secs > -1 && time.Now().After(endtime) {
 			break
@@ -675,7 +671,8 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 		}
 
 		start := time.Now().UnixNano()
-		req, resp := svc.GetObjectRequest(r)
+		// req, resp := svc.GetObjectRequest(r)
+		req, resp := svcL[iterator%int64(len(svcL))].GetObjectRequest(r)
 
 		// Set up operation timeout if requested
 		if op_timeout > 0 {
@@ -729,10 +726,12 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 }
 
 func runDelete(thread_num int, stats *Stats) {
+	iterator := int64(-1)
 	errcnt := 0
-	svc := s3.New(session.New(), cfg)
+	svcL := GetS3Services("")
 
 	for {
+		iterator++
 		if duration_secs > -1 && time.Now().After(endtime) {
 			break
 		}
@@ -752,7 +751,7 @@ func runDelete(thread_num int, stats *Stats) {
 		}
 
 		start := time.Now().UnixNano()
-		req, out := svc.DeleteObjectRequest(r)
+		req, out := svcL[iterator%int64(len(svcL))].DeleteObjectRequest(r)
 		err := req.Send()
 		end := time.Now().UnixNano()
 		stats.updateIntervals(thread_num)
@@ -879,8 +878,9 @@ type pagedObject struct {
 }
 
 func runPagedList(wg *sync.WaitGroup, bucket_num int64, list chan<- pagedObject) {
-	svc := s3.New(session.New(), cfg)
-	svc.ListObjectsPages(
+	svcL := GetS3Services("")
+
+	svcL[0].ListObjectsPages(
 		&s3.ListObjectsInput{
 			Bucket:  &buckets[bucket_num],
 			MaxKeys: &max_keys,
@@ -899,12 +899,15 @@ func runPagedList(wg *sync.WaitGroup, bucket_num int64, list chan<- pagedObject)
 }
 
 func runBucketsClear(list <-chan pagedObject, thread_num int, stats *Stats) {
-	svc := s3.New(session.New(), cfg)
+	iterator := int64(-1)
+	svcL := GetS3Services("")
 
 	for {
+		iterator++
+
 		v := <-list
 		start := time.Now().UnixNano()
-		_, err := svc.DeleteObject(&s3.DeleteObjectInput{
+		_, err := svcL[iterator%int64(len(svcL))].DeleteObject(&s3.DeleteObjectInput{
 			Bucket: &buckets[v.bucket_num],
 			Key:    &v.key,
 		})
@@ -1079,17 +1082,57 @@ NOTES:
 		os.Exit(1)
 	}
 
+	// Check workload profile
+	if workload_profile_file != "" {
+		w, err := LoadWorkloadConfig(workload_profile_file)
+		if err != nil {
+			log.Printf("Error loading workload profile config file: %v", err)
+			return
+		}
+		workload_config = w
+	} else {
+		// Generate default workload profile
+		workload_config.AddWorkloadProfile("", 1, ranged_size, ranged_offset)
+	}
+
+	// Configure S3 profile
+	if len(workload_config.S3Config) < 1 {
+		workload_config.AddS3Config("default", []string{url_host}, access_key, secret_key)
+	} else {
+		// Fill empty fields with ENV values
+		for i, d := range workload_config.S3Config {
+			if d.AccessKey == "" {
+				workload_config.S3Config[i].AccessKey = access_key
+			}
+			if d.SecretKey == "" {
+				workload_config.S3Config[i].SecretKey = secret_key
+			}
+			if len(d.Endpoints) < 1 {
+				workload_config.S3Config[i].Endpoints = []string{url_host}
+			}
+		}
+	}
+	s3Config := workload_config.S3Config[0]
+	cfg = &aws.Config{
+		Endpoint:    aws.String(s3Config.Endpoints[0]),
+		Credentials: credentials.NewStaticCredentials(s3Config.AccessKey, s3Config.SecretKey, ""),
+		Region:      aws.String(region),
+		// DisableParamValidation:  aws.Bool(true),
+		DisableComputeChecksums: aws.Bool(true),
+		S3ForcePathStyle:        aws.Bool(true),
+	}
+
 	// Check the arguments
 	if object_count < 0 && duration_secs < 0 {
 		log.Fatal("The number of objects and duration can not both be unlimited")
 	}
-	if access_key == "" {
+	if s3Config.AccessKey == "" {
 		log.Fatal("Missing argument -a for access key.")
 	}
-	if secret_key == "" {
+	if s3Config.SecretKey == "" {
 		log.Fatal("Missing argument -s for secret key.")
 	}
-	if url_host == "" {
+	if s3Config.Endpoints[0] == "" {
 		log.Fatal("Missing argument -u for host endpoint.")
 	}
 	invalid_mode := false
@@ -1139,30 +1182,9 @@ func main() {
 
 	app_context = context.TODO()
 
-	cfg = &aws.Config{
-		Endpoint:    aws.String(url_host),
-		Credentials: credentials.NewStaticCredentials(access_key, secret_key, ""),
-		Region:      aws.String(region),
-		// DisableParamValidation:  aws.Bool(true),
-		DisableComputeChecksums: aws.Bool(true),
-		S3ForcePathStyle:        aws.Bool(true),
-	}
-
-	// Check workload profile
-	if workload_profile_file != "" {
-		w, err := LoadWorkloadConfig(workload_profile_file)
-		if err != nil {
-			log.Printf("Error loading workload profile config file: %v", err)
-			return
-		}
-		workload_config = w
-	} else {
-		// Generate default workload profile
-		workload_config.AddDefaultProfile("", 1, ranged_size, ranged_offset)
-	}
-
 	// Echo the parameters
 	log.Printf("Parameters:")
+	log.Printf("Workload config:", workload_config)
 	log.Printf("url=%s", url_host)
 	log.Printf("object_prefix=%s", object_prefix)
 	if bucket_list != "" {
@@ -1191,9 +1213,6 @@ func main() {
 	log.Printf("workload_profile_file=%s", workload_profile_file)
 	log.Printf("workload_profile_name=%s", workload_profile_name)
 
-	// // Init Data
-	// initData()
-
 	// Setup the slice of buckets
 	if bucket_list == "" {
 		for i := int64(0); i < bucket_count; i++ {
@@ -1210,46 +1229,8 @@ func main() {
 
 	// Write objects info
 	wg := sync.WaitGroup{}
-	if objects_info_output != "" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			file, err := os.OpenFile(objects_info_output, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0777)
-			if err != nil {
-				log.Fatal("Could not open file to write objects info: ", err)
-			}
-
-			for object_info := range object_info_chan {
-				data, err := json.Marshal(object_info)
-				if err != nil {
-					log.Fatal("Error marshaling object info for key '", object_info.Key, "': ", err)
-					continue
-				}
-				_, err = file.Write(data)
-				if err != nil {
-					log.Fatal("Error writing object info for key '", object_info.Key, "': ", err)
-					log.Fatal("Abort writing")
-					break
-				}
-				_, err = file.WriteString("\n")
-				if err != nil {
-					log.Fatal("Error writing eol for key '", object_info.Key, "': ", err)
-					log.Fatal("Abort writing")
-					break
-				}
-			}
-
-			file.Sync()
-			file.Close()
-
-		}()
-	} else {
-		go func() {
-			for _ = range object_info_chan {
-			}
-		}()
-	}
+	wg.Add(1)
+	go LogObjectInfo(objects_info_output, object_info_chan, &wg)
 
 	// Loop running the tests
 	oStats := make([]OutputStats, 0)
@@ -1263,38 +1244,8 @@ func main() {
 	wg.Wait()
 
 	// Write CSV Output
-	if output != "" {
-		file, err := os.OpenFile(output, os.O_CREATE|os.O_WRONLY, 0777)
-		defer file.Close()
-		if err != nil {
-			log.Fatal("Could not open CSV file for writing.")
-		} else {
-			csvWriter := csv.NewWriter(file)
-			for i, o := range oStats {
-				if i == 0 {
-					o.csv_header(csvWriter)
-				}
-				o.csv(csvWriter)
-			}
-			csvWriter.Flush()
-		}
-	}
+	LogCSV(output, oStats)
 
 	// Write JSON output
-	if json_output != "" {
-		file, err := os.OpenFile(json_output, os.O_CREATE|os.O_WRONLY, 0777)
-		defer file.Close()
-		if err != nil {
-			log.Fatal("Could not open JSON file for writing.")
-		}
-		data, err := json.Marshal(oStats)
-		if err != nil {
-			log.Fatal("Error marshaling JSON: ", err)
-		}
-		_, err = file.Write(data)
-		if err != nil {
-			log.Fatal("Error writing to JSON file: ", err)
-		}
-		file.Sync()
-	}
+	LogJSON(json_output, oStats)
 }
