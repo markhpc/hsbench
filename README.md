@@ -2,14 +2,14 @@
 
 ## Introduction
 
-hsbench is an S3 compatable benchmark originally based on [wasabi-tech/s3-benchmark](https://github.com/wasabi-tech/s3-benchmark).
+hsbench is an S3 compatable benchmark originally based on [markhpc/hsbench](https://github.com/markhpc/hsbench).
 While there are already several S3 compatable benchmark suites available, each has various tradeoffs.  What seemed to be missing
 was a simple yet extremely fast benchmark that could easily be scripted into orchestration frameworks to run tests at scale.
 hsbench tries to fill that niche.  The current release of hsbench is considered to be alpha level software and may contain bugs.
 
 ## Features
 
-hsbench tries to improve on the original Wasabi s3-benchmark in the following ways:
+hsbench tries to improve on the original Wasabi s3-benchmark and markhpc/hsbench in the following ways:
 *	Threads can distribute IOS across an arbitrary number of buckets.
 *	Tests can be run individually and externally coordinated across multiple clients.
 *	Intermediate results are logged periodically at user-defined intervals.
@@ -18,6 +18,15 @@ hsbench tries to improve on the original Wasabi s3-benchmark in the following wa
 *	Object prefixes can be set to test large object names (12 bytes reserved for uniqueness)
 *	Bucket/Object prefixes can be used to allow multiple clients to target the same buckets
 *   You can use hsbench to delete buckets in parallel: `./hsbench -a ... -s ... -u http://... -m cx -t 32 -bl "bucket1 bucket2 ..."` (-t is the number of threads)
+*   You can have multiple endpoints, just specify workload profile filename `-wp workload.yaml` and fill list of endpoints in `s3.endpoints` for `default` section (if endpoints/access_key/secret key are empty, then this values will be used from command line parameters)
+```
+s3:
+  - name: "default"
+    endpoints: [ "http://endpoint1/", "http://endpoint2/", "http://endpoint3/" ]
+    access_key: ""
+    secret_key: ""
+
+```
 
 ## Limitations
 
@@ -29,7 +38,7 @@ hsbench tries to improve on the original Wasabi s3-benchmark in the following wa
 ## Prerequisites
 To leverage this tool, the following prerequisites apply:
 *	Git development environment
-*	Go version 1.7 or newer
+*	Go version 1.21 or newer
 *	Access to an S3 compatable storage service (AWS, Ceph, etc) 
 
 ## Install
