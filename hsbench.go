@@ -48,6 +48,8 @@ var object_count_flag bool
 var endtime time.Time
 var interval float64
 var single_bucket bool
+var prefix_count uint
+var prefixes []string
 
 // canonicalAmzHeaders -- return the x-amz headers canonicalized
 func canonicalAmzHeaders(req *http.Request) string {
@@ -443,7 +445,7 @@ func runUpload(thread_num int, stats *Stats) {
 		}
 		fileobj := bytes.NewReader(object_data)
 
-		key := fmt.Sprintf("%s%012d", object_prefix, objnum)
+		key := fmt.Sprintf("%s%012d", prefixes[objnum % int64(prefix_count)], objnum)
 		r := &s3.PutObjectInput{
 			Bucket: &buckets[bucket_num],
 			Key:    &key,
@@ -489,7 +491,7 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 		}
 
 		bucket_num := objnum % int64(bucket_count)
-		key := fmt.Sprintf("%s%012d", object_prefix, objnum)
+		key := fmt.Sprintf("%s%012d", prefixes[objnum % int64(prefix_count)], objnum)
 		r := &s3.GetObjectInput{
 			Bucket: &buckets[bucket_num],
 			Key:    &key,
@@ -537,7 +539,7 @@ func runDelete(thread_num int, stats *Stats) {
 
 		bucket_num := objnum % int64(bucket_count)
 
-		key := fmt.Sprintf("%s%012d", object_prefix, objnum)
+		key := fmt.Sprintf("%s%012d", prefixes[objnum % int64(prefix_count)], objnum)
 		r := &s3.DeleteObjectInput{
 			Bucket: &buckets[bucket_num],
 			Key:    &key,
@@ -793,6 +795,7 @@ func init() {
 	myflag.Int64Var(&object_count, "n", -1, "Maximum number of objects <-1 for unlimited>")
 	myflag.Int64Var(&bucket_count, "b", 1, "Number of buckets to distribute IOs across")
 	myflag.BoolVar(&single_bucket, "single_bucket", false, "Whether to use single bucket. If true - b (bucket count) parameter is ignored")
+	myflag.UintVar(&prefix_count, "prefix_count", 1, "Number of prefixes to distribute IOs across. Use only with single bucket")
 	myflag.IntVar(&duration_secs, "d", 60, "Maximum test duration in seconds <-1 for unlimited>")
 	myflag.IntVar(&threads, "t", 1, "Number of threads to run")
 	myflag.IntVar(&loops, "l", 1, "Number of times to repeat test")
@@ -920,6 +923,7 @@ func main() {
 	log.Printf("max_keys=%d", max_keys)
 	log.Printf("object_count=%d", object_count)
 	log.Printf("bucket_count=%d", bucket_count)
+	log.Printf("prefix_count=%d", prefix_count)
 	log.Printf("duration=%d", duration_secs)
 	log.Printf("threads=%d", threads)
 	log.Printf("loops=%d", loops)
@@ -932,7 +936,19 @@ func main() {
 	// Setup the slice of buckets
 	if single_bucket {
 		buckets = append(buckets, bucket_prefix)
+
+		var base_prefix = strings.TrimRight(object_prefix, "/")
+		if prefix_count > 1 {
+			for i := uint(0); i < prefix_count; i++ {
+				prefixes = append(prefixes, fmt.Sprintf("%s%04d/", base_prefix, i))
+			}
+		} else {
+			prefix_count = 1
+			prefixes = append(prefixes, object_prefix)
+		}
 	} else {
+		prefix_count = 1
+		prefixes = append(prefixes, object_prefix)
 		for i := int64(0); i < bucket_count; i++ {
 			buckets = append(buckets, fmt.Sprintf("%s%012d", bucket_prefix, i))
 		}
