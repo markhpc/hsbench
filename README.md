@@ -36,14 +36,14 @@ To leverage this tool, the following prerequisites apply:
 The easiest way to install hsbench is to use go's built in github support:
 
 ```
-go get github.com/markhpc/hsbench
+go get github.com/temdon/hsbench_fork
 ```
 
 Then in the hsbench src directory run 'go build':
 
 ```
 $ pwd
-/home/perf/go/src/github.com/markhpc/hsbench
+/home/perf/go/src/github.com/temdon/hsbench_fork
 $ go build
 ```
 
@@ -83,6 +83,8 @@ OPTIONS:
     	Number of seconds between report intervals (default 1)
   -s string
     	Secret key
+  -single_bucket
+        Whether to use single bucket. If true - b (bucket count) parameter is ignored
   -t int
     	Number of threads to run (default 1)
   -u string

@@ -6,7 +6,6 @@ package main
 
 import (
 	"bytes"
-	"code.cloudfoundry.org/bytefmt"
 	"crypto/hmac"
 	"crypto/md5"
 	"crypto/sha1"
@@ -16,10 +15,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"io"
 	"io/ioutil"
 	"log"
@@ -34,6 +29,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"code.cloudfoundry.org/bytefmt"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 // Global variables
@@ -46,50 +47,9 @@ var max_keys, running_threads, bucket_count, object_count, object_size, op_count
 var object_count_flag bool
 var endtime time.Time
 var interval float64
-
-// Our HTTP transport used for the roundtripper below
-var HTTPTransport http.RoundTripper = &http.Transport{
-	Proxy: http.ProxyFromEnvironment,
-	Dial: (&net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-	}).Dial,
-	TLSHandshakeTimeout:   10 * time.Second,
-	ExpectContinueTimeout: 0,
-	// Set the number of idle connections to 2X the number of threads
-	MaxIdleConnsPerHost: 2 * threads,
-	MaxIdleConns:        2 * threads,
-	// But limit their idle time to 1 minute
-	IdleConnTimeout: time.Minute,
-	// Ignore TLS errors
-	TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-}
-
-var httpClient = &http.Client{Transport: HTTPTransport}
-
-func getS3Client() *s3.S3 {
-	// Build our config
-	creds := credentials.NewStaticCredentials(access_key, secret_key, "")
-	loglevel := aws.LogOff
-	// Build the rest of the configuration
-	awsConfig := &aws.Config{
-		Region:               aws.String(region),
-		Endpoint:             aws.String(url_host),
-		Credentials:          creds,
-		LogLevel:             &loglevel,
-		S3ForcePathStyle:     aws.Bool(true),
-		S3Disable100Continue: aws.Bool(true),
-		// Comment following to use default transport
-		HTTPClient: &http.Client{Transport: HTTPTransport},
-	}
-	session := session.New(awsConfig)
-	client := s3.New(session)
-	if client == nil {
-		log.Fatalf("FATAL: Unable to create new client.")
-	}
-	// Return success
-	return client
-}
+var single_bucket bool
+var prefix_count uint
+var prefixes []string
 
 // canonicalAmzHeaders -- return the x-amz headers canonicalized
 func canonicalAmzHeaders(req *http.Request) string {
@@ -470,7 +430,7 @@ func (stats *Stats) finish(thread_num int) {
 	}
 }
 
-func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
+func runUpload(thread_num int, stats *Stats) {
 	errcnt := 0
 	svc := s3.New(session.New(), cfg)
 	for {
@@ -485,7 +445,7 @@ func runUpload(thread_num int, fendtime time.Time, stats *Stats) {
 		}
 		fileobj := bytes.NewReader(object_data)
 
-		key := fmt.Sprintf("%s%012d", object_prefix, objnum)
+		key := fmt.Sprintf("%s%012d", prefixes[objnum % int64(prefix_count)], objnum)
 		r := &s3.PutObjectInput{
 			Bucket: &buckets[bucket_num],
 			Key:    &key,
@@ -531,7 +491,7 @@ func runDownload(thread_num int, fendtime time.Time, stats *Stats) {
 		}
 
 		bucket_num := objnum % int64(bucket_count)
-		key := fmt.Sprintf("%s%012d", object_prefix, objnum)
+		key := fmt.Sprintf("%s%012d", prefixes[objnum % int64(prefix_count)], objnum)
 		r := &s3.GetObjectInput{
 			Bucket: &buckets[bucket_num],
 			Key:    &key,
@@ -579,7 +539,7 @@ func runDelete(thread_num int, stats *Stats) {
 
 		bucket_num := objnum % int64(bucket_count)
 
-		key := fmt.Sprintf("%s%012d", object_prefix, objnum)
+		key := fmt.Sprintf("%s%012d", prefixes[objnum % int64(prefix_count)], objnum)
 		r := &s3.DeleteObjectInput{
 			Bucket: &buckets[bucket_num],
 			Key:    &key,
@@ -769,7 +729,7 @@ func runWrapper(loop int, r rune) []OutputStats {
 		log.Printf("Running Loop %d OBJECT PUT TEST", loop)
 		stats = makeStats(loop, "PUT", threads, intervalNano)
 		for n := 0; n < threads; n++ {
-			go runUpload(n, endtime, &stats)
+			go runUpload(n, &stats)
 		}
 	case 'l':
 		log.Printf("Running Loop %d BUCKET LIST TEST", loop)
@@ -834,6 +794,8 @@ func init() {
 	myflag.Int64Var(&max_keys, "mk", 1000, "Maximum number of keys to retreive at once for bucket listings")
 	myflag.Int64Var(&object_count, "n", -1, "Maximum number of objects <-1 for unlimited>")
 	myflag.Int64Var(&bucket_count, "b", 1, "Number of buckets to distribute IOs across")
+	myflag.BoolVar(&single_bucket, "single_bucket", false, "Whether to use single bucket. If true - b (bucket count) parameter is ignored")
+	myflag.UintVar(&prefix_count, "prefix_count", 1, "Number of prefixes to distribute IOs across. Use only with single bucket")
 	myflag.IntVar(&duration_secs, "d", 60, "Maximum test duration in seconds <-1 for unlimited>")
 	myflag.IntVar(&threads, "t", 1, "Number of threads to run")
 	myflag.IntVar(&loops, "l", 1, "Number of times to repeat test")
@@ -931,6 +893,22 @@ func main() {
 		// DisableParamValidation:  aws.Bool(true),
 		DisableComputeChecksums: aws.Bool(true),
 		S3ForcePathStyle:        aws.Bool(true),
+		HTTPClient: &http.Client{Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: time.Second,
+			// Set the number of idle connections to 2X the number of threads
+			MaxIdleConnsPerHost: 2 * threads,
+			MaxIdleConns:        2 * threads,
+			// But limit their idle time to 1 minute
+			IdleConnTimeout: time.Minute,
+			// Ignore TLS errors
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}},
 	}
 
 	// Echo the parameters
@@ -945,6 +923,7 @@ func main() {
 	log.Printf("max_keys=%d", max_keys)
 	log.Printf("object_count=%d", object_count)
 	log.Printf("bucket_count=%d", bucket_count)
+	log.Printf("prefix_count=%d", prefix_count)
 	log.Printf("duration=%d", duration_secs)
 	log.Printf("threads=%d", threads)
 	log.Printf("loops=%d", loops)
@@ -955,8 +934,24 @@ func main() {
 	initData()
 
 	// Setup the slice of buckets
-	for i := int64(0); i < bucket_count; i++ {
-		buckets = append(buckets, fmt.Sprintf("%s%012d", bucket_prefix, i))
+	if single_bucket {
+		buckets = append(buckets, bucket_prefix)
+
+		var base_prefix = strings.TrimRight(object_prefix, "/")
+		if prefix_count > 1 {
+			for i := uint(0); i < prefix_count; i++ {
+				prefixes = append(prefixes, fmt.Sprintf("%s%04d/", base_prefix, i))
+			}
+		} else {
+			prefix_count = 1
+			prefixes = append(prefixes, object_prefix)
+		}
+	} else {
+		prefix_count = 1
+		prefixes = append(prefixes, object_prefix)
+		for i := int64(0); i < bucket_count; i++ {
+			buckets = append(buckets, fmt.Sprintf("%s%012d", bucket_prefix, i))
+		}
 	}
 
 	// Loop running the tests
