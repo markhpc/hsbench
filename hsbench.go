@@ -46,6 +46,7 @@ var max_keys, running_threads, bucket_count, object_count, object_size, op_count
 var object_count_flag bool
 var endtime time.Time
 var interval float64
+var zero_object_data bool
 
 // Our HTTP transport used for the roundtripper below
 var HTTPTransport http.RoundTripper = &http.Transport{
@@ -839,6 +840,7 @@ func init() {
 	myflag.IntVar(&loops, "l", 1, "Number of times to repeat test")
 	myflag.StringVar(&sizeArg, "z", "1M", "Size of objects in bytes with postfix K, M, and G")
 	myflag.Float64Var(&interval, "ri", 1.0, "Number of seconds between report intervals")
+	myflag.BoolVar(&zero_object_data, "zd", false, "Write zero values for objects data in PUT operations instead of random data")
 	// define custom usage output with notes
 	notes :=
 		`
@@ -914,7 +916,13 @@ NOTES:
 func initData() {
 	// Initialize data for the bucket
 	object_data = make([]byte, object_size)
-	rand.Read(object_data)
+	if zero_object_data {
+		for i := range object_data {
+			object_data[i] = 0
+		}
+	} else {
+		rand.Read(object_data)
+	}
 	hasher := md5.New()
 	hasher.Write(object_data)
 	object_data_md5 = base64.StdEncoding.EncodeToString(hasher.Sum(nil))
