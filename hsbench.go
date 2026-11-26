@@ -47,6 +47,7 @@ var object_count_flag bool
 var endtime time.Time
 var interval float64
 var zero_object_data bool
+var keep_alive bool
 
 // Our HTTP transport used for the roundtripper below
 var HTTPTransport http.RoundTripper = &http.Transport{
@@ -57,7 +58,9 @@ var HTTPTransport http.RoundTripper = &http.Transport{
 	}).Dial,
 	TLSHandshakeTimeout:   10 * time.Second,
 	ExpectContinueTimeout: 0,
-	// Set the number of idle connections to 2X the number of threads
+	// Set the number of idle connections to 2X the number of threads.
+	// This runs before init() parses -t, while threads is still 0, so
+	// main() sets both limits again when -ka is given.
 	MaxIdleConnsPerHost: 2 * threads,
 	MaxIdleConns:        2 * threads,
 	// But limit their idle time to 1 minute
@@ -896,6 +899,7 @@ func init() {
 	myflag.StringVar(&sizeArg, "z", "1M", "Size of objects in bytes with postfix K, M, and G")
 	myflag.Float64Var(&interval, "ri", 1.0, "Number of seconds between report intervals")
 	myflag.BoolVar(&zero_object_data, "zd", false, "Write zero values for objects data in PUT operations instead of random data")
+	myflag.BoolVar(&keep_alive, "ka", false, "Keep up to 2 idle HTTP connections per thread open for reuse, instead of the SDK default of 2 per host, with which most threads open a new connection per request")
 	// define custom usage output with notes
 	notes :=
 		`
@@ -998,6 +1002,18 @@ func main() {
 		S3ForcePathStyle:        aws.Bool(true),
 	}
 
+	// Without an HTTPClient the SDK uses http.DefaultTransport, which keeps
+	// at most 2 idle connections per host.  With -t threads, a connection
+	// that finishes a request when 2 are already idle is closed, so most
+	// requests pay for a new TCP connection.
+	if keep_alive {
+		if t, ok := HTTPTransport.(*http.Transport); ok {
+			t.MaxIdleConnsPerHost = 2 * threads
+			t.MaxIdleConns = 2 * threads
+		}
+		cfg.HTTPClient = httpClient
+	}
+
 	// Echo the parameters
 	log.Printf("Parameters:")
 	log.Printf("url=%s", url_host)
@@ -1015,6 +1031,7 @@ func main() {
 	log.Printf("loops=%d", loops)
 	log.Printf("size=%s", sizeArg)
 	log.Printf("interval=%f", interval)
+	log.Printf("keep_alive=%t", keep_alive)
 
 	// Init Data
 	initData()
