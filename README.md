@@ -65,6 +65,8 @@ OPTIONS:
     	Maximum test duration in seconds <-1 for unlimited> (default 60)
   -j string
     	Write JSON output to this file
+  -ka
+    	Keep up to 2 idle HTTP connections per thread open for reuse, instead of the SDK default of 2 per host, with which most threads open a new connection per request
   -l int
     	Number of times to repeat test (default 1)
   -m string
